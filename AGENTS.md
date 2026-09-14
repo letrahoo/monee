@@ -14,6 +14,8 @@
 - Google 绑定 sub、GitHub 绑定数值 ID；用户名/邮箱只能经验证后关联。OAuth 密钥和超管私有配置不能进入 Git。
 - 合成身份提供方只能在 `_test.go` 中用于隔离测试，不得注入正常服务入口。
 
+- 默认从 `main` 接续；阶段性交付需确认完整内容已进入 main，不能把合入另一个 feature 分支当作已进入主干。
+
 ## 常用检查
 
 - `./gradlew :shared:jvmTest`

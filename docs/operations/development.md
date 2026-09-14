@@ -5,13 +5,13 @@
 ## 获取当前代码
 
 ```sh
-git clone --branch feat/oauth-allowlist https://github.com/letrahoo/monee.git
+git clone --branch main https://github.com/letrahoo/monee.git
 cd monee
 # 可选：使用已登录的 GitHub CLI 核对远程进度
 gh pr view 3
 ```
 
-接续前读 [AGENTS.md](../../AGENTS.md) 和[交接摘要](../HANDOFF.md)。若分支已合并或删除，先查询 PR 再选择包含该改动的 main/后继分支。不要在只含预览的旧 main 上重复实现。
+接续前读 [AGENTS.md](../../AGENTS.md) 和[交接摘要](../HANDOFF.md)。当前 main 已包含 #2/#3 全部改动；已有克隆先执行 `git switch main` 和 `git pull --ff-only origin main`。如本地有未提交改动，先保留它们再切换，不强制覆盖。
 
 ## 工具与首次构建
 

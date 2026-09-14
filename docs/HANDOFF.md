@@ -1,6 +1,6 @@
 # 开发交接
 
-更新：2026-09-14。本文是换电脑、换会话或换开发者的入口。代码基线：`3fde5bf`；后续文档同步提交见本文件的 Git 历史。真实凭据、身份配置和账本不在仓库内。
+更新：2026-09-14。本文是换电脑、换会话或换开发者的入口。功能基线：`3fde5bf`，交接文档基线：`a6ca673`；完整代码与文档已补合到 main，后续提交见 Git 历史。真实凭据、身份配置和账本不在仓库内。
 
 ## 先读与先取什么
 
@@ -16,10 +16,10 @@
 | PR | 分支 → 基础分支 | 状态与内容 |
 | --- | --- | --- |
 | [#1](https://github.com/letrahoo/monee/pull/1) | feat/kmp-foundation → main | 已合并；KMP 基础与品牌图标 |
-| [#2](https://github.com/letrahoo/monee/pull/2) | feat/local-ledger-api → main | 未合并；真实账本链路 |
-| [#3](https://github.com/letrahoo/monee/pull/3) | feat/oauth-allowlist → feat/local-ledger-api | Draft、未合并；登录、白名单、桌面返回、退出及文案精简 |
+| [#2](https://github.com/letrahoo/monee/pull/2) | feat/local-ledger-api → main | 已合并；真实账本链路 |
+| [#3](https://github.com/letrahoo/monee/pull/3) | feat/oauth-allowlist → feat/local-ledger-api | 已合并到原基础分支，其完整内容已补合入 main；登录、白名单、桌面返回、退出及文案精简 |
 
-**继续开发应检出 `feat/oauth-allowlist`。仅拉取 main 会得到较早的预览版本。** #3 已包含 #2 的基础代码。合并时先处理 #2，再重新核对 #3 的 base 和差异；本次同步不合并 PR。
+**继续开发直接检出 `main`。** #2 先合入 main，#3 随后合入 feat/local-ledger-api，曾导致 main 未包含后续认证代码；2026-09-14 已将完整开发分支补合到 main。功能分支仅保留历史，不再是接续入口。
 
 重要提交：`277739f` 登录/白名单；`f4c4fea` 桌面自动返回；`916e715` 退出入口和状态清理；`3fde5bf` 全局文案精简。未提交内容和缓存不是交接依赖。
 
@@ -70,7 +70,7 @@ MVP 靠可用功能成立，不以页面文字填充未实现的能力。界面�
 
 以下是开发建议，不表示已经实施或新开任务。
 
-1. 按运行指南在新目录跑通无凭据测试，再用自己的 OAuth 配置完成 Google Web 与 Mac 人工验收；确认 #2/#3 合并依赖。
+1. 按运行指南在新目录跑通无凭据测试，再用自己的 OAuth 配置完成 Google Web 与 Mac 人工验收；确认本地 main 与远程一致。
 2. 在扩大真实数据使用或新增 schema 迁移前，先补版本化备份/恢复及校验，避免以复制 SQLite 文件冒充完整恢复产品。
 3. 用脱敏账单明确首个原生格式，做解析 → 预览 → 确认闭环；接入指定文件夹时复用该链路，验证重启补扫、稳定写入、失败重试及幂等。
 4. 随后扩展邮件、其他来源与主动分析；移动端和付款通知捕获按真实设备能力单独验证。

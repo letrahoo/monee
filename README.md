@@ -8,7 +8,7 @@
 
 Monee 是一款本地优先的个人财务助手，目标是自动整理账单、解释财务变化，只在需要判断时提醒你。当前正在逐步实现 MVP。
 
-**换电脑或新会话接续：先读[开发交接](docs/HANDOFF.md)和[异地开发指南](docs/operations/development.md)。当前开发分支为 `feat/oauth-allowlist`，PR #3 基于尚未合并的 PR #2；main 可能仍是较早版本。**
+**换电脑或新会话接续：先读[开发交接](docs/HANDOFF.md)和[异地开发指南](docs/operations/development.md)。完整开发进度已同步到 `main`，换机直接克隆主干。**
 
 ## 产品方向
 
