@@ -16,7 +16,7 @@
 | `shared` | 品牌界面、统计卡片、分类条形图、月份切换、中文搜索、账单详情、窄窗口布局 |
 | `desktopApp` | JVM 窗口及 macOS 原生分发配置 |
 | `webApp` | Wasm 浏览器入口与静态页面 |
-| `assets/brand` | 原始 Logo，构建时复制到共享资源目录 |
+| `assets/brand` | 原始 Logo 与透明边缘应用图标，构建时将应用图标复制到共享资源目录 |
 | `assets/fonts` | Noto Sans SC 中文字体与 OFL 许可证，随资源分发 |
 
 固定版本：Kotlin 2.4.10、Compose Multiplatform 1.11.1、Gradle 8.14.4、JDK 17。Kotlin/Compose 组合参考 [Kotlin 官方模板](https://github.com/Kotlin/KMP-App-Template/tree/6b6d09e4f3f5e845116422d59b658791ed6149c6)；Gradle 分发校验值写入 wrapper 配置。
@@ -47,7 +47,7 @@ Web 开发任务会持续运行，访问其输出的本地地址。桌面运行�
 | `:desktopApp:createDistributable` | 通过；生成并启动 `desktopApp/build/compose/binaries/main/app/Monee.app` |
 | `:webApp:wasmJsBrowserDistribution` | 通过；产物位于 `webApp/build/dist/wasmJs/productionExecutable` |
 | Web / Mac 品牌与中文显示 | Logo、Slogan、中文、金额均可见 |
-| Mac 安装包图标 | 重新打包通过；Info.plist 指向 Monee.icns，包内文件与生成文件一致，提取后目视确认为 Monee Logo；原图哈希不变 |
+| Mac 安装包图标 | 使用透明边缘派生图；Info.plist 指向 Monee.icns，包内文件与生成文件一致，透明角与深浅背景轮廓已检查；原图哈希不变 |
 | Web / Mac 月份切换 | 9 月净支出 ¥782.50，切换 8 月后为 ¥1,299.00；明细同步变化 |
 | Web 中文搜索与清除 | 输入“微信”后 8 月明细只保留“朋友聚餐”；清除后恢复 3 笔 |
 | Web / Mac 账单详情 | 行内展开与收起通过；Web 收起后继续切月、搜索和展开说明，状态正常 |

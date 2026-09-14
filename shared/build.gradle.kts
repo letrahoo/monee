@@ -25,7 +25,10 @@ kotlin {
 }
 
 val prepareBrandResources by tasks.registering(Sync::class) {
-    from(rootProject.layout.projectDirectory.file("assets/brand/logo.png")) { into("drawable") }
+    from(rootProject.layout.projectDirectory.file("assets/brand/app-icon.png")) {
+        into("drawable")
+        rename { "logo.png" }
+    }
     from(rootProject.layout.projectDirectory.file("assets/fonts/noto_sans_sc.ttf")) { into("font") }
     from(rootProject.layout.projectDirectory.file("assets/fonts/OFL.txt")) { into("files/licenses") }
     into(layout.buildDirectory.dir("generated/brandResources"))

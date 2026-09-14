@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/brand/logo.png" alt="Monee Logo：绿色 M 形图案与金色硬币" width="180" height="180" />
+  <img src="assets/brand/app-icon.png" alt="Monee Logo：绿色 M 形图案与金色硬币" width="180" height="180" />
 </p>
 
 <h1 align="center">Monee</h1>
@@ -45,6 +45,7 @@ Web 需要支持 WebAssembly GC 的现代浏览器。完整中文字体随应用
 
 - [品牌说明](docs/brand.md)：Logo 原图、Slogan 与使用约定。
 - [Logo 原图](assets/brand/logo.png)：1254 × 1254 PNG。
+- [应用图标](assets/brand/app-icon.png)：透明边缘派生图，供页面和 Mac 打包使用。
 - [MVP 产品讨论稿](docs/product/mvp-discussion.md)：目标、核心流程、统计口径与实施阶段。
 - [产品与代码架构提案](docs/architecture/mvp-proposal.md)：跨端方案、本地存储、导入链路与云端兼容性。
 - [KMP 体验验证](docs/architecture/kmp-validation.md)：运行方式、共享边界与验证状态。

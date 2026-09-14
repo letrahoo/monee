@@ -16,7 +16,7 @@ dependencies {
 
 val macIcon = layout.buildDirectory.file("generated/appIcon/Monee.icns")
 val generateMacIcon by tasks.registering(Exec::class) {
-    val source = rootProject.layout.projectDirectory.file("assets/brand/logo.png")
+    val source = rootProject.layout.projectDirectory.file("assets/brand/app-icon.png")
     val script = rootProject.layout.projectDirectory.file("scripts/generate-macos-icon.sh")
     inputs.files(source, script)
     outputs.file(macIcon)
