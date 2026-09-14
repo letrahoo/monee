@@ -18,6 +18,10 @@ Monee 是一款本地优先的个人财务助手，目标是自动整理账单�
 - **本地优先**：Web 与 Mac App 共用本地数据，为后续云端同步保留兼容性。
 - **四端规划**：客户端使用 KMP + Compose Multiplatform，先支持 Web / Mac，随后补齐 iOS / Android；服务端使用 Golang。
 
+## 预览版下载
+
+[0.0.1 构建与使用说明](docs/releases/0.0.1.md) · [GitHub Releases](https://github.com/letrahoo/monee/releases)
+
 ## 项目状态
 
 已打通 **KMP Web / Mac → Go API → 本机 SQLite**。两端读取同一份账本，支持标准 CSV 的预览与确认导入、重复流水检查、手动收入/支出、月度统计、中文搜索、分页和明细。默认打开真实空账本，确认后持久化，客户端每 5 秒刷新；现在需先通过登录与白名单验证。

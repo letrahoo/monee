@@ -29,9 +29,10 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg)
             packageName = "Monee"
-            // jpackage on macOS requires a non-zero leading component, including for previews.
-            packageVersion = "1.0.0"
+            packageVersion = providers.gradleProperty("moneeVersion").get()
             macOS {
+                // Build number is separate from the user-visible preview version.
+                packageBuildVersion = "1.0.1"
                 bundleID = "com.letrahoo.monee"
                 iconFile.set(generateMacIcon.map { macIcon.get() })
                 infoPlist {
