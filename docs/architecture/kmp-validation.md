@@ -26,8 +26,9 @@ Gradle wrapper 来自该模板，仅使用通用启动脚本及 wrapper JAR，�
 ## 运行与检查
 
 ```sh
+./scripts/run-local.sh # 先运行服务并提供同源 Web，保持此终端运行
+# 另一个终端
 ./gradlew :desktopApp:run
-./scripts/run-local.sh # 先运行服务并提供同源 Web，再启动 Mac
 ./gradlew :shared:jvmTest :desktopApp:classes :webApp:wasmJsBrowserDistribution
 # 在 macOS 生成可直接启动的 .app（尚未签名、公证）
 ./gradlew :desktopApp:createDistributable
@@ -63,12 +64,14 @@ Web 构建仍给出体积告警：Skiko Wasm 约 8.25 MiB、应用 Wasm 约 2.49
 
 ## 当前限制与下一步
 
+登录与白名单已接入共享 UI，原生系统浏览器授权与 Web Cookie 会话通过平台层分别处理。真实 OAuth 应用配置与验收边界见[登录记录](login-and-access.md)。
+
 - 当前默认读取真实本地账本，标准 CSV 导入、手动收支、月度统计已接通，原有演示数据类已移除。接口与持久化验收见[数据链路记录](local-data-flow.md)；目录/邮件、完整账单适配和云端同步尚未实现。
 - 中文完整字体约 17 MB，先确保任意中文输入的显示；后续验证字体子集、缓存和加载反馈。字体用于技术验证，不代表最终品牌字体。
 - 需要继续实测中文输入法组合输入、键盘焦点、屏幕阅读器、首屏时间与大列表性能；代码编译通过不能替代这些结果。
 - macOS 分发图标已由品牌原图生成并接入；签名、公证、安装与升级仍属于后续桌面交付阶段。
 - Web/Mac 共用同一 Go 服务已联调验证：Web 导入和补记后 Mac 自动刷新，读取同样的账单和统计。当前 Mac 不自动启动 Go 服务。
-- 本轮生产构建的应用 Wasm 约 3.12 MiB、Skiko 8.25 MiB、JS 340 KiB，另有完整中文字体约 17 MB。Webpack 仍有体积告警和 Ktor 动态依赖告警；本轮 Web 运行未出现控制台 error，不等于所有平台兼容性完成。
+- 2026-09-14 文案精简后的生产构建应用 Wasm 约 3.21 MiB、Skiko 8.25 MiB、JS 340 KiB，另有完整中文字体约 17 MB。Webpack 仍有体积告警和 Ktor 动态依赖告警；本轮 Web 运行未出现控制台 error，不等于所有平台兼容性完成。
 
 ## 参考
 

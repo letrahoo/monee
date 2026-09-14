@@ -36,6 +36,23 @@ data class ImportPreview(
 @Serializable data class ImportRequest(val filename: String, val csv: String)
 @Serializable data class CommitRequest(val ledgerVersion: Long, val confirmSimilar: Boolean)
 @Serializable data class CommitResult(val importId: String, val added: Int, val skipped: Int, val month: String)
-@Serializable data class Connection(val baseUrl: String, val token: String)
+@Serializable data class Connection(val baseUrl: String)
 @Serializable data class PickedCSV(val name: String, val text: String)
 @Serializable data class APIProblem(val code: String = "error", val message: String = "请求失败")
+
+@Serializable data class LoginProvider(val id:String,val enabled:Boolean)
+@Serializable data class AuthUser(val provider:String,val subject:String,val username:String="",val email:String="",val displayName:String="",val allowed:Boolean,val role:String="") {
+    val label:String get() = username.ifBlank { email.ifBlank { displayName.ifBlank { subject } } }
+}
+@Serializable data class AuthState(val user:AuthUser?=null,val providers:List<LoginProvider> = emptyList(),val csrfToken:String="")
+@Serializable data class LoginStart(val provider:String,val client:String,val challenge:String="")
+@Serializable data class LoginFlow(val id:String,val url:String,val expiresIn:Int)
+@Serializable data class LoginPoll(val id:String,val verifier:String)
+@Serializable data class LoginResult(val status:String,val token:String="")
+data class LoginProof(val verifier:String,val challenge:String)
+@Serializable data class AccessSelector(val provider:String="github",val kind:String="username",val value:String="",val note:String="")
+@Serializable data class AccessEntry(val id:String,val provider:String,val kind:String,val value:String,val subject:String,val note:String,val role:String,val enabled:Boolean,val protected:Boolean,val version:Long,val createdAt:String)
+@Serializable data class AccessList(val entries:List<AccessEntry>)
+@Serializable data class AccessChange(val enabled:Boolean,val version:Long)
+@Serializable data class AccessAudit(val id:Long,val actor:String,val action:String,val entryId:String,val createdAt:String)
+@Serializable data class AccessHistory(val events:List<AccessAudit>)
