@@ -8,6 +8,11 @@
 - 真实账单、邮箱凭据、数据库、构建缓存和本机路径不得提交。
 - 品牌原图以 `assets/brand/logo.png` 为准并保留不变；应用使用其透明边缘派生图 `assets/brand/app-icon.png`，构建时生成 Compose 资源与 ICNS。
 - Slogan 保持 `Know Your Money. Own Your Future.`。
+- 用户界面只保留操作、结果和影响用户决策的说明。Slogan 仅用于登录等品牌入口；不要在账本页堆叠宣传语、Web/Mac/KMP 等实现说明或正常连接状态。格式帮助、账号 ID、权限操作记录按需展开；保留重复入账、权限和交易类型限制等必要提示。合成样本留在测试资料中，不在正式账本提供填入示例入口。
+
+- 所有账本与管理接口必须由 Go 验证登录和白名单；不能恢复共享本地 token、首个登录者自动成为超管或生产鉴权绕过。
+- Google 绑定 sub、GitHub 绑定数值 ID；用户名/邮箱只能经验证后关联。OAuth 密钥和超管私有配置不能进入 Git。
+- 合成身份提供方只能在 `_test.go` 中用于隔离测试，不得注入正常服务入口。
 
 ## 常用检查
 
@@ -18,8 +23,12 @@
 
 ## 设计依据
 
+- 接续入口与已完成范围：`docs/HANDOFF.md`
+- 换机运行、配置和私有资料边界：`docs/operations/development.md`
+
 - 产品范围：`docs/product/mvp-discussion.md`
 - 架构：`docs/architecture/mvp-proposal.md`
 - KMP 验证：`docs/architecture/kmp-validation.md`
 - 当前数据链路与接口：`docs/architecture/local-data-flow.md`、`api/openapi.yaml`
+- 登录与授权：`docs/architecture/login-and-access.md`
 - 品牌：`docs/brand.md`

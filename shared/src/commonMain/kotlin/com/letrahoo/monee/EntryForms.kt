@@ -17,22 +17,23 @@ import com.letrahoo.monee.data.*
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ImportPanel(csv:String,filename:String,preview:ImportPreview?,confirmedSimilar:Boolean,working:Boolean,
-    onCSVChange:(String)->Unit,onPick:()->Unit,onTemplate:(Boolean)->Unit,onPreview:()->Unit,
+    onCSVChange:(String)->Unit,onPick:()->Unit,onTemplate:()->Unit,onPreview:()->Unit,
     onConfirmSimilar:(Boolean)->Unit,onCommit:()->Unit) {
     var previewPage by remember(preview) { mutableStateOf(0) }
+    var showFormat by remember { mutableStateOf(false) }
     Surface(color=Color.White,shape=RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(22.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
-            Text("导入标准 CSV",fontSize=21.sp,fontWeight=FontWeight.Bold,color=Pine)
-            Text("仅支持 UTF-8 标准模板，最多 1000 行 / 2 MiB。支付宝、微信和银行专有格式尚未适配；转账、退款和还款暂不支持。",color=Muted,fontSize=12.sp)
+            Text("导入账单",fontSize=21.sp,fontWeight=FontWeight.Bold,color=Pine)
+            Text("请按 CSV 模板整理账单。最多 1000 行、2 MB，仅支持人民币收入和支出。",color=Muted,fontSize=12.sp)
             FlowRow(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(onClick=onPick,enabled=!working){Text("选择 CSV 文件")}
-                TextButton(onClick={onTemplate(false)},enabled=!working){Text("填入模板")}
-                TextButton(onClick={onTemplate(true)},enabled=!working){Text("填入合成示例")}
+                TextButton(onClick=onTemplate,enabled=!working){Text("使用模板")}
             }
             Text("文件：$filename",fontSize=12.sp,color=Muted)
             OutlinedTextField(csv,onValueChange=onCSVChange,modifier=Modifier.fillMaxWidth().heightIn(min=150.dp,max=240.dp),enabled=!working,
                 label={Text("CSV 内容，可直接粘贴")},textStyle=LocalTextStyle.current.copy(fontSize=12.sp))
-            Text("date 日期、type 收支、amount 正数金额（元）、currency 固定 CNY、merchant 商户、source 来源为必填列。category 分类、account 资金账户、external_id 来源流水号、note 备注可选。",fontSize=12.sp,color=Muted)
+            TextButton(onClick={showFormat=!showFormat}){Text(if(showFormat)"收起格式说明"else"格式说明")}
+            if(showFormat) Text("UTF-8 编码。必填：date 日期、type 收支、amount 金额（元）、currency 币种（CNY）、merchant 商户、source 来源。可选：category 分类、account 账户、external_id 流水号、note 备注。转账、退款和还款暂不支持。",fontSize=12.sp,color=Muted)
             Button(onClick=onPreview,enabled=csv.isNotBlank()&&!working){Text("预览账单")}
             preview?.let { p ->
                 if(p.alreadyCommitted) Text("此文件已入账，重复导入不会新增账单。",color=Pine)
@@ -55,12 +56,11 @@ internal fun ImportPanel(csv:String,filename:String,preview:ImportPreview?,confi
                 }
                 if(p.similarCount>0&&!p.alreadyCommitted) Row(verticalAlignment=Alignment.CenterVertically) {
                     Checkbox(confirmedSimilar,onCheckedChange=onConfirmSimilar,enabled=!working)
-                    Text("已核实以上相似记录是独立交易，需要继续入账。",fontSize=13.sp)
+                    Text("这些相似账单是不同交易，继续入账。",fontSize=13.sp)
                 }
                 if(!p.alreadyCommitted) Button(onClick=onCommit,enabled=p.id.isNotEmpty()&&p.errors.isEmpty()&&(!working)&&(p.similarCount==0||confirmedSimilar)){
                     Text("确认入账 ${p.newCount} 笔")
                 }
-                Text("确认后保存整个文件内通过校验的记录。示例同样会保存，请勿将示例当成真实账单。",fontSize=12.sp,color=Muted)
             }
         }
     }
@@ -78,13 +78,13 @@ internal fun ManualPanel(input:TransactionInput,working:Boolean,onChange:(Transa
                 else OutlinedButton(onClick={onChange(input.copy(type="income"))},enabled=!working){Text("收入")}
             }
             OutlinedTextField(input.date,{onChange(input.copy(date=it))},Modifier.fillMaxWidth(),label={Text("日期 YYYY-MM-DD")},singleLine=true,enabled=!working)
-            OutlinedTextField(input.amount,{onChange(input.copy(amount=it))},Modifier.fillMaxWidth(),label={Text("金额（元，正数）")},singleLine=true,enabled=!working,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Decimal))
+            OutlinedTextField(input.amount,{onChange(input.copy(amount=it))},Modifier.fillMaxWidth(),label={Text("金额（元）")},singleLine=true,enabled=!working,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Decimal))
             OutlinedTextField(input.merchant,{onChange(input.copy(merchant=it))},Modifier.fillMaxWidth(),label={Text("商户或说明")},singleLine=true,enabled=!working)
             OutlinedTextField(input.category,{onChange(input.copy(category=it))},Modifier.fillMaxWidth(),label={Text("分类（留空为未分类）")},singleLine=true,enabled=!working)
             OutlinedTextField(input.source,{onChange(input.copy(source=it))},Modifier.fillMaxWidth(),label={Text("账单来源")},singleLine=true,enabled=!working)
             OutlinedTextField(input.account,{onChange(input.copy(account=it))},Modifier.fillMaxWidth(),label={Text("资金账户（留空为待核实）")},singleLine=true,enabled=!working)
             OutlinedTextField(input.note,{onChange(input.copy(note=it))},Modifier.fillMaxWidth(),label={Text("备注")},singleLine=true,enabled=!working)
-            Text("当前仅支持普通收入和支出，请勿用来记录转账、退款或信用账户还款。",fontSize=12.sp,color=Muted)
+            Text("暂不支持转账、退款和还款。",fontSize=12.sp,color=Muted)
             Button(onClick=onSave,enabled=!working&&input.amount.isNotBlank()&&input.merchant.isNotBlank()){Text("保存账单")}
         }
     }

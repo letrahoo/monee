@@ -8,7 +8,7 @@
 - 仓库名称：`monee`。
 - Slogan：**Know Your Money. Own Your Future.**
 
-对外展示保留 Slogan 的英文拼写、大小写和两个句号。
+对外展示保留 Slogan 的英文拼写、大小写和两个句号。产品界面仅在登录品牌入口展示 Slogan；账本页不重复宣传语，应用窗口与网页标题仅为 Monee。
 
 ## Logo
 

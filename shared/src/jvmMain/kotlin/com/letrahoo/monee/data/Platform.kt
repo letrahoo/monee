@@ -41,3 +41,17 @@ actual suspend fun chooseCSV(): PickedCSV? {
         PickedCSV(selected.fileName.toString(), Files.readString(selected))
     }
 }
+
+internal actual fun isPlatformNetworkFailure(cause: Throwable): Boolean = false
+internal actual val loginClient:String = "desktop"
+internal actual fun loginProof():LoginProof {
+    val bytes=ByteArray(32).also {java.security.SecureRandom().nextBytes(it)}
+    val encoder=java.util.Base64.getUrlEncoder().withoutPadding()
+    val verifier=encoder.encodeToString(bytes)
+    val challenge=encoder.encodeToString(java.security.MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)))
+    return LoginProof(verifier,challenge)
+}
+internal actual suspend fun openLoginURL(url:String) = withContext(Dispatchers.IO) {
+    java.awt.Desktop.getDesktop().browse(java.net.URI(url))
+}
+internal actual suspend fun returnToApplication() { DesktopReturn.activate() }

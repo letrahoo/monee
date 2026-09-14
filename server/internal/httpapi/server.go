@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,12 +13,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/letrahoo/monee/server/internal/auth"
 	"github.com/letrahoo/monee/server/internal/ledger"
 )
 
 type API struct {
-	Store               *ledger.Store
-	Token, Host, WebDir string
+	Store        *ledger.Store
+	Host, WebDir string
+	Auth         *auth.Service
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -70,15 +71,9 @@ func (a API) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"status": "ok", "apiVersion": 1, "schemaVersion": 1})
 	})
-	mux.HandleFunc("GET /api/v1/session", func(w http.ResponseWriter, r *http.Request) {
-		// Only browser fetches from our own document may obtain a session token.
-		// Native clients read the user-private connection file instead.
-		if r.Header.Get("Sec-Fetch-Site") != "same-origin" {
-			writeJSON(w, 403, map[string]string{"code": "origin", "message": "请从本地 Monee 页面连接"})
-			return
-		}
-		writeJSON(w, 200, map[string]string{"token": a.Token, "baseUrl": "http://" + a.Host})
-	})
+	if a.Auth != nil {
+		a.Auth.Register(mux)
+	}
 	mux.HandleFunc("GET /api/v1/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		page := 1
 		var err error
@@ -181,14 +176,18 @@ func (a API) Handler() http.Handler {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
 		origin := r.Header.Get("Origin")
 		site := r.Header.Get("Sec-Fetch-Site")
-		if r.Host != a.Host || (origin != "" && origin != "http://"+a.Host) || site == "cross-site" || site == "same-site" {
+		callback := r.Method == "GET" && (r.URL.Path == "/auth/callback/google" || r.URL.Path == "/auth/callback/github")
+		navigation := r.Method == "GET" && r.Header.Get("Sec-Fetch-Mode") == "navigate" && (r.URL.Path == "/" || r.URL.Path == "/auth/begin" || r.URL.Path == "/auth/result")
+		if r.Host != a.Host || (!callback && origin != "" && origin != "http://"+a.Host) || ((site == "cross-site" || site == "same-site") && !callback && !navigation) {
 			writeJSON(w, 403, map[string]string{"code": "origin", "message": "拒绝非本地同源访问"})
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/api/v1/health" && r.URL.Path != "/api/v1/session" {
-			provided, bearer := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if !bearer || a.Token == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(a.Token)) != 1 {
-				writeJSON(w, 401, map[string]string{"code": "unauthorized", "message": "本地连接凭据无效，请重新连接"})
+		if strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/api/v1/health" && !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") && !strings.HasPrefix(r.URL.Path, "/api/v1/admin/") {
+			if a.Auth == nil {
+				writeJSON(w, 503, map[string]string{"code": "auth_unavailable", "message": "登录服务尚未配置"})
+				return
+			}
+			if !a.Auth.AuthorizeData(w, r) {
 				return
 			}
 		}
