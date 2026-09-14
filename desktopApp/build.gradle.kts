@@ -54,7 +54,7 @@ compose.desktop {
 
 // Set the marketing version after jpackage validation, before the DMG consumes the app.
 // Re-sign the outer bundle because Info.plist is covered by its ad-hoc signature.
-tasks.named("createDistributable") {
+tasks.matching { it.name == "createDistributable" }.configureEach {
     val marketingVersion = providers.gradleProperty("moneeVersion")
     inputs.property("marketingVersion", marketingVersion)
     doLast {
