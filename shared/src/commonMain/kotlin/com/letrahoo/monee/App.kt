@@ -187,7 +187,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                                                 Text(item.merchant,fontWeight=FontWeight.Medium,color=Ink,maxLines=1,overflow=TextOverflow.Ellipsis)
                                                 Text("${item.category} · ${item.source}${if(compact)" · ${item.date}"else""}",fontSize=12.sp,color=Muted)
                                             }
-                                            Text((if(item.type=="income")"+"else"−")+formatMoney(item.amountMinor.toLong()),color=if(item.type=="income")Pine else Ink,fontWeight=FontWeight.SemiBold)
+                                            Text(formatTransactionMoney(item.amountMinor.toLong()),color=if(item.type=="income")Pine else Ink,fontWeight=FontWeight.SemiBold)
                                         }
                                     }
                                     // Inline details avoid the Compose Wasm popup accessibility issue CMP-10623.
