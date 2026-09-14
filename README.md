@@ -53,7 +53,7 @@ Mac 数据默认保存在 `~/Library/Application Support/Monee/`，应用重建�
 
 导入页提供空模板；[合成 CSV 样本](fixtures/synthetic/standard.csv) 仅供独立测试账本使用，示例确认后也会真实保存。字段、去重规则、测试账本运行方法和接口见[本地数据链路](docs/architecture/local-data-flow.md)。
 
-Web 需要支持 WebAssembly GC 的现代浏览器。完整中文字体随应用资源提供；首次加载体积仍需优化。Mac 键盘输入尚待实际输入法复验。当前 .app 需要先运行 Go 服务，尚未包含服务的自动启动、签名或公证。
+Web 需要支持 WebAssembly GC 的现代浏览器。完整中文字体随应用资源提供；首次加载体积仍需优化。Mac 键盘输入尚待实际输入法复验。当前 .app 需要先运行 Go 服务，尚未包含服务的自动启动、签名或公证。重新构建后应完全退出旧 Monee 进程，再打开新版 .app；正在运行的客户端不会自动加载新代码。
 
 共享界面位于 `shared/src/commonMain`，平台入口为 `desktopApp` 和 `webApp`。技术边界和验证结果见 [KMP 体验验证](docs/architecture/kmp-validation.md)。
 
