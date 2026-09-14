@@ -10,11 +10,11 @@
 - Slogan 保持 `Know Your Money. Own Your Future.`。
 - 用户界面只保留操作、结果和影响用户决策的说明。Slogan 仅用于登录等品牌入口；不要在账本页堆叠宣传语、Web/Mac/KMP 等实现说明或正常连接状态。格式帮助、账号 ID、权限操作记录按需展开；保留重复入账、权限和交易类型限制等必要提示。合成样本留在测试资料中，不在正式账本提供填入示例入口。
 
-- 所有账本与管理接口必须由 Go 验证登录和白名单；不能恢复共享本地 token、首个登录者自动成为超管或生产鉴权绕过。
+- 所有账本与管理接口必须由 Go 验证登录和统一账号准入，账本接口还需逐请求验证成员角色；不能恢复共享本地 token、首个登录者自动成为超管或生产鉴权绕过。
 - Google 绑定 sub、GitHub 绑定数值 ID；用户名/邮箱只能经验证后关联。OAuth 密钥和超管私有配置不能进入 Git。
 - 合成身份提供方只能在 `_test.go` 中用于隔离测试，不得注入正常服务入口。
 
-- 默认从 `main` 接续；阶段性交付需确认完整内容已进入 main，不能把合入另一个 feature 分支当作已进入主干。
+- 默认从 `main` 接续，使用独立功能分支开发并提交 PR；禁止直接推送远程 main。未经用户明确要求不合并 PR，交付时说明 PR 与主干状态。
 
 ## 常用检查
 
@@ -34,3 +34,5 @@
 - 当前数据链路与接口：`docs/architecture/local-data-flow.md`、`api/openapi.yaml`
 - 登录与授权：`docs/architecture/login-and-access.md`
 - 品牌：`docs/brand.md`
+
+- 统一账号与多账本模型见 `docs/architecture/unified-accounts-ledgers.md`。数据目录使用单个 `application.db`，外部登录身份关联稳定用户 UUID，系统准入和账本成员权限分开。

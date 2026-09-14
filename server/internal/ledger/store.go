@@ -15,16 +15,21 @@ import (
 	"sync"
 	"time"
 
+	"github.com/letrahoo/monee/server/internal/storage"
 	_ "modernc.org/sqlite"
 )
 
 //go:embed migrations/001.sql
 var schema string
 
+//go:embed migrations/002.sql
+var schema2 string
+
 type Store struct {
 	db                 *sql.DB
-	mu                 sync.Mutex
+	mu                 *sync.Mutex
 	ledgerID, deviceID string
+	actorID            string
 }
 
 func Open(path string) (*Store, error) {
@@ -45,13 +50,13 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
+	s := &Store{db: db, mu: &sync.Mutex{}}
 	fail := func(e error) (*Store, error) { db.Close(); return nil, e }
 	var version int
 	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return fail(err)
 	}
-	if version > 1 {
+	if version > 2 {
 		return fail(problem("future_schema", "数据库来自更新版本，拒绝以旧程序写入"))
 	}
 	if version == 0 {
@@ -72,7 +77,20 @@ func Open(path string) (*Store, error) {
 			return fail(e)
 		}
 	}
-	if err = db.QueryRow("SELECT id,device_id FROM ledgers").Scan(&s.ledgerID, &s.deviceID); err != nil {
+	if version < 2 {
+		tx, e := db.Begin()
+		if e != nil {
+			return fail(e)
+		}
+		if _, e = tx.Exec(storage.IdentitySchema + schema2); e != nil {
+			tx.Rollback()
+			return fail(e)
+		}
+		if e = tx.Commit(); e != nil {
+			return fail(e)
+		}
+	}
+	if err = db.QueryRow("SELECT id,device_id FROM ledgers ORDER BY created_at,id LIMIT 1").Scan(&s.ledgerID, &s.deviceID); err != nil {
 		return fail(err)
 	}
 	return s, nil
@@ -85,7 +103,7 @@ func (s *Store) version() (int64, error) {
 }
 
 func (s *Store) change(tx *sql.Tx, entityType, id string, payload any) error {
-	_, err := tx.Exec("INSERT INTO change_log(change_id,ledger_id,device_id,entity_id,entity_type,base_version,entity_version,operation,payload_version,payload_json,created_at) VALUES(?,?,?,?,?,0,1,'create',1,?,?)", newID(), s.ledgerID, s.deviceID, id, entityType, encode(payload), now())
+	_, err := tx.Exec("INSERT INTO change_log(change_id,ledger_id,device_id,entity_id,entity_type,base_version,entity_version,operation,payload_version,payload_json,created_at,actor_id) VALUES(?,?,?,?,?,0,1,'create',1,?,?,?)", newID(), s.ledgerID, s.deviceID, id, entityType, encode(payload), now(), nullActor(s.actorID))
 	return err
 }
 func (s *Store) account(tx *sql.Tx, kind, name string) (string, error) {
@@ -147,6 +165,11 @@ func (s *Store) insert(tx *sql.Tx, t Transaction) error {
 	if balance != 0 {
 		return problem("unbalanced", "分录不平衡，操作已取消")
 	}
+	if s.actorID != "" {
+		if _, err = tx.Exec("UPDATE transactions SET created_by=? WHERE id=?", s.actorID, t.ID); err != nil {
+			return err
+		}
+	}
 	return s.change(tx, "transaction", t.ID, map[string]any{"transaction": t, "postings": postings, "ledgerId": s.ledgerID, "createdAt": timestamp, "updatedAt": timestamp, "deletedAt": nil})
 }
 
@@ -166,8 +189,11 @@ func (s *Store) Create(in Input, key string) (Transaction, error) {
 		return t, err
 	}
 	defer tx.Rollback()
+	if err = s.authorize(tx, true); err != nil {
+		return t, err
+	}
 	var previousHash, previousJSON string
-	err = tx.QueryRow("SELECT request_hash,response_json FROM idempotency WHERE key=?", key).Scan(&previousHash, &previousJSON)
+	err = tx.QueryRow("SELECT request_hash,response_json FROM idempotency WHERE ledger_id=? AND key=?", s.ledgerID, key).Scan(&previousHash, &previousJSON)
 	if err == nil {
 		if previousHash != requestHash {
 			return t, problem("conflict", "该请求标识已用于另一笔数据")
@@ -194,7 +220,7 @@ func (s *Store) Create(in Input, key string) (Transaction, error) {
 	if _, err = tx.Exec("UPDATE ledgers SET version=version+1 WHERE id=?", s.ledgerID); err != nil {
 		return t, err
 	}
-	if _, err = tx.Exec("INSERT INTO idempotency VALUES(?,?,?,?)", key, requestHash, encode(t), now()); err != nil {
+	if _, err = tx.Exec("INSERT INTO idempotency VALUES(?,?,?,?,?)", s.ledgerID, key, requestHash, encode(t), now()); err != nil {
 		return t, err
 	}
 	return t, tx.Commit()
@@ -224,6 +250,9 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 		return d, problem("invalid", "分页或搜索条件无效")
 	}
 	var err error
+	if err = s.authorize(s.db, false); err != nil {
+		return d, err
+	}
 	if d.Version, err = s.version(); err != nil {
 		return d, err
 	}

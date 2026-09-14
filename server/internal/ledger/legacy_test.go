@@ -141,3 +141,16 @@ func TestLegacySplitsLargeUTF8Notes(t *testing.T) {
 		}
 	}
 }
+
+func TestLegacyHoldsAllMembersOfSimilarityGroups(t *testing.T) {
+	one := legacyFixture("one")
+	two := legacyFixture("two")
+	two.Merchant = one.Merchant
+	p, err := PrepareLegacy(legacySnapshot(one, two))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Candidates != 0 || p.Review != 2 || p.CandidateExpenseMinor != "0" || len(p.Files) != 0 {
+		t.Fatal("similarity group was auto-approved", p)
+	}
+}

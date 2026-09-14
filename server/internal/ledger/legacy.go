@@ -197,6 +197,38 @@ func PrepareLegacy(raw []byte) (LegacyPlan, error) {
 		}
 		p.Decisions = append(p.Decisions, d)
 	}
+	// The current import flow treats equal date/type/amount/merchant as a
+	// similarity requiring human confirmation. Keep every member of such groups
+	// out of the first migration batch, rather than auto-confirming independence.
+	similarCounts := map[string]int{}
+	for _, in := range candidates {
+		t, _ := normalize(in)
+		similarCounts[similarity(t)]++
+	}
+	held := map[string]bool{}
+	filtered := []Input{}
+	for _, in := range candidates {
+		t, _ := normalize(in)
+		if similarCounts[similarity(t)] > 1 {
+			held[strings.TrimPrefix(in.ExternalID, "ai-financial:")] = true
+			minor, _ := parseAmount(in.Amount)
+			total -= minor
+		} else {
+			filtered = append(filtered, in)
+		}
+	}
+	for index := range p.Decisions {
+		d := &p.Decisions[index]
+		if held[d.ID] {
+			d.Decision = "review"
+			d.Reason = "same_day_amount_merchant"
+			p.Candidates--
+			p.Review++
+			p.Reasons["ordinary_expense"]--
+			p.Reasons[d.Reason]++
+		}
+	}
+	candidates = filtered
 	p.CandidateExpenseMinor = strconv.FormatInt(total, 10)
 	// Leave headroom for JSON escaping in the 3 MiB HTTP request envelope.
 	// Split on row count and a conservative 1 MiB encoded CSV byte limit.

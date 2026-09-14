@@ -16,12 +16,13 @@ const host = "127.0.0.1:4173"
 
 func apiForTest(t *testing.T) (http.Handler, string) {
 	t.Helper()
-	s, e := ledger.Open(filepath.Join(t.TempDir(), "ledger.db"))
+	dbPath := filepath.Join(t.TempDir(), "application.db")
+	s, e := ledger.Open(dbPath)
 	if e != nil {
 		t.Fatal(e)
 	}
 	t.Cleanup(func() { s.Close() })
-	access, e := auth.Open(filepath.Join(t.TempDir(), "auth.db"), []auth.Selector{{Provider: "github", Kind: "subject", Value: "1001"}})
+	access, e := auth.Open(dbPath, []auth.Selector{{Provider: "github", Kind: "subject", Value: "1001"}})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -32,6 +33,13 @@ func apiForTest(t *testing.T) (http.Handler, string) {
 	}
 	token, e := access.CreateSession(identity)
 	if e != nil {
+		t.Fatal(e)
+	}
+	u, e := access.Session(token)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.CreateLedger(u.ID, "测试账本"); e != nil {
 		t.Fatal(e)
 	}
 	return API{Store: s, Auth: auth.NewService(access, nil, "http://"+host), Host: host}.Handler(), token

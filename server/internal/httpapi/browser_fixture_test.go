@@ -46,20 +46,44 @@ func TestBrowserAuthFixture(t *testing.T) {
 	}
 	const base = "http://127.0.0.1:4175"
 	dir := t.TempDir()
-	data, e := ledger.Open(filepath.Join(dir, "ledger.db"))
+	data, e := ledger.Open(filepath.Join(dir, "application.db"))
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer data.Close()
-	_, e = data.Create(ledger.Input{Date: "2026-09-14", Type: "expense", Amount: "12.34", Currency: "CNY", Merchant: "合成权限验证", Source: "合成测试", Category: "测试"}, "auth-ui-fixture-0001")
-	if e != nil {
-		t.Fatal(e)
-	}
-	access, e := auth.Open(filepath.Join(dir, "auth.db"), []auth.Selector{{Provider: "github", Kind: "subject", Value: "1001"}, {Provider: "google", Kind: "email", Value: "synthetic-admin@gmail.com"}})
+	access, e := auth.Open(filepath.Join(dir, "application.db"), []auth.Selector{{Provider: "github", Kind: "subject", Value: "1001"}, {Provider: "google", Kind: "email", Value: "synthetic-admin@gmail.com"}})
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer access.Close()
+	for _, provider := range []string{"github", "google"} {
+		i, e := (browserFixtureProvider{base, provider}).Exchange(context.Background(), "fixture-admin", "proof", "nonce")
+		if e != nil {
+			t.Fatal(e)
+		}
+		if e = access.RememberIdentity(i); e != nil {
+			t.Fatal(e)
+		}
+		token, e := access.CreateSession(i)
+		if e != nil {
+			t.Fatal(e)
+		}
+		u, e := access.Session(token)
+		if e != nil {
+			t.Fatal(e)
+		}
+		l, e := data.CreateLedger(u.ID, provider+" 合成账本")
+		if e != nil {
+			t.Fatal(e)
+		}
+		scoped, e := data.Scoped(u.ID, l.ID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = scoped.Create(ledger.Input{Date: "2026-09-14", Type: "expense", Amount: "12.34", Currency: "CNY", Merchant: "合成权限验证", Source: "合成测试", Category: "测试"}, "auth-ui-fixture-0001"); e != nil {
+			t.Fatal(e)
+		}
+	}
 	providers := map[string]auth.Provider{"github": browserFixtureProvider{base, "github"}, "google": browserFixtureProvider{base, "google"}}
 	handler := API{Store: data, Auth: auth.NewService(access, providers, base), Host: "127.0.0.1:4175", WebDir: os.Getenv("MONEE_AUTH_UI_WEB_DIR")}.Handler()
 	chooser := template.Must(template.New("choose").Parse(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>合成登录验证</title><h1>隔离测试：选择合成账号</h1><p>仅验证应用内数据权限，不会登录 Google / GitHub。</p><ul><li><a href="{{.Admin}}">合成超管</a></li><li><a href="{{.Member}}">合成成员</a></li><li><a href="{{.Denied}}">合成未授权账号</a></li></ul></html>`))

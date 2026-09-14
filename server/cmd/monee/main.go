@@ -18,7 +18,6 @@ import (
 
 	"github.com/letrahoo/monee/server/internal/auth"
 	"github.com/letrahoo/monee/server/internal/httpapi"
-	"github.com/letrahoo/monee/server/internal/ledger"
 )
 
 func run() error {
@@ -59,11 +58,6 @@ func run() error {
 		return fmt.Errorf("local address is already in use: %w", err)
 	}
 	defer listener.Close()
-	store, err := ledger.Open(filepath.Join(*dataDir, "monee.db"))
-	if err != nil {
-		return err
-	}
-	defer store.Close()
 	if *authConfigPath == "" {
 		*authConfigPath = filepath.Join(*dataDir, "auth.json")
 	}
@@ -71,11 +65,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	accessStore, err := auth.Open(filepath.Join(*dataDir, "auth.db"), config.Superadmins)
+	store, accessStore, err := openApplication(*dataDir, config)
 	if err != nil {
 		return err
 	}
 	defer accessStore.Close()
+	defer store.Close()
 	baseURL := "http://" + listener.Addr().String()
 	access := auth.NewService(accessStore, auth.NewProviders(config, baseURL), baseURL)
 	connection, _ := json.Marshal(map[string]string{"baseUrl": baseURL})

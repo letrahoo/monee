@@ -37,7 +37,7 @@ private val Line = Color(0xFFE4E9E1)
 private fun requestKey() = List(32) { "0123456789abcdef"[Random.nextInt(16)] }.joinToString("")
 
 @Composable
-internal fun LedgerScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError:String?,onLogout:()->Unit,onManage:()->Unit,onAccessLost:()->Unit) {
+internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorkspace:()->Unit,authBusy:Boolean,authError:String?,onLogout:()->Unit,onManage:()->Unit,onAccessLost:()->Unit) {
     val scope = rememberCoroutineScope()
     var dashboard by remember { mutableStateOf<Dashboard?>(null) }
     var month by remember { mutableStateOf("") }
@@ -62,10 +62,10 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError
         loading = true
         try {
             if (query.isNotEmpty()) delay(250)
-            dashboard = api.dashboard(month,query,page)
+            dashboard = api.dashboard(ledger.id,month,query,page)
             connectionError = null
         } catch (e: CancellationException) { throw e
-        } catch (e: Exception) { if(e is LedgerException&&e.accessLost)onAccessLost() else connectionError = e.message ?: "本地服务暂不可用"
+        } catch (e: Exception) { if(e is LedgerException&&e.accessLost)onAccessLost() else {dashboard=null;connectionError = e.message ?: "本地服务暂不可用"}
         } finally { loading = false }
     }
     LaunchedEffect(Unit) {
@@ -97,12 +97,13 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError
                     Image(painterResource(Res.drawable.logo),"Monee Logo",Modifier.size(56.dp))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Monee",fontSize=26.sp,fontWeight=FontWeight.Bold,color=Pine)
+                        Text(ledger.name,fontSize=26.sp,fontWeight=FontWeight.Bold,color=Pine)
                     }
                 }
                 Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
                     Text("${user.provider.displayProvider()} · ${user.label}${if(user.role=="superadmin")" · 超管"else""}",fontSize=12.sp,color=Muted)
                     Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                        TextButton(onClick=onWorkspace,enabled=!working&&!authBusy){Text("账本与账号")}
                         if(user.role=="superadmin")TextButton(onClick=onManage,enabled=!working&&!authBusy){Text("管理白名单")}
                         OutlinedButton(onClick=onLogout,enabled=!working&&!authBusy){Text(if(authBusy)"正在退出…"else"退出登录")}
                     }
@@ -117,10 +118,11 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError
                 }
                 if (loading || working) LinearProgressIndicator(Modifier.fillMaxWidth(),color=Pine)
                 Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-                    Button(onClick={panel=if(panel=="import")""else"import";actionError=null},enabled=dashboard!=null&&!working&&connectionError==null) { Text("导入账单") }
-                    OutlinedButton(onClick={panel=if(panel=="manual")""else"manual";if(input.date.isEmpty())input=input.copy(date=dashboard?.today.orEmpty());actionError=null},enabled=dashboard!=null&&!working&&connectionError==null) { Text("记一笔") }
+                    Button(onClick={panel=if(panel=="import")""else"import";actionError=null},enabled=ledger.role!="viewer"&&dashboard!=null&&!working&&connectionError==null) { Text("导入账单") }
+                    OutlinedButton(onClick={panel=if(panel=="manual")""else"manual";if(input.date.isEmpty())input=input.copy(date=dashboard?.today.orEmpty());actionError=null},enabled=ledger.role!="viewer"&&dashboard!=null&&!working&&connectionError==null) { Text("记一笔") }
                     TextButton(onClick={refresh++},enabled=!working) { Text("刷新") }
                 }
+                if(ledger.role=="viewer")Text("只读账本",color=Muted)
                 notice?.let { Text(it,color=Pine) }
                 actionError?.let { Text(it,color=MaterialTheme.colors.error) }
                 if(panel=="import") {
@@ -128,14 +130,14 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError
                         onCSVChange=::changeCSV,
                         onPick={runAction { chooseCSV()?.let { filename=it.name;changeCSV(it.text) } }},
                         onTemplate={runAction { filename="import.csv";changeCSV(api.template(false)) }},
-                        onPreview={runAction { preview=api.preview(filename,csv);confirmedSimilar=false }},
+                        onPreview={runAction { preview=api.preview(ledger.id,filename,csv);confirmedSimilar=false }},
                         onConfirmSimilar={confirmedSimilar=it},
-                        onCommit={preview?.let { p->runAction { val result=api.commit(p,confirmedSimilar);preview=null;csv="";saved(result.month,"已保存 ${result.added} 笔，跳过 ${result.skipped} 笔重复流水。") } }},
+                        onCommit={preview?.let { p->runAction { val result=api.commit(ledger.id,p,confirmedSimilar);preview=null;csv="";saved(result.month,"已保存 ${result.added} 笔，跳过 ${result.skipped} 笔重复流水。") } }},
                     )
                 }
                 if(panel=="manual") {
                     ManualPanel(input,working,onChange={input=it;createKey=requestKey()},onSave={runAction {
-                        val created=api.create(input,createKey)
+                        val created=api.create(ledger.id,input,createKey)
                         input=TransactionInput(date=dashboard?.today.orEmpty());createKey=requestKey()
                         saved(created.date.take(7),"已保存")
                     }})

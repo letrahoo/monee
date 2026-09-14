@@ -48,6 +48,7 @@ type Entry struct {
 	CreatedAt string `json:"createdAt"`
 }
 type User struct {
+	ID string `json:"id"`
 	Identity
 	Allowed bool   `json:"allowed"`
 	Role    string `json:"role"`
@@ -116,13 +117,23 @@ func (s *Store) initialize(seeds []Selector) error {
 	if err = tx.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version > 1 {
+	if version > 2 {
 		return errors.New("auth database requires a newer application")
 	}
-	if version == 0 {
+	var hasAuth int
+	if err = tx.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE name='auth_meta' AND type='table'").Scan(&hasAuth); err != nil {
+		return err
+	}
+	if hasAuth == 0 {
 		if _, err = tx.Exec(authSchema); err != nil {
 			return err
 		}
+	}
+	if err = migrateAccounts(tx); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("PRAGMA user_version=2"); err != nil {
+		return err
 	}
 	var initialized int
 	if err = tx.QueryRow("SELECT COUNT(*) FROM auth_meta WHERE key='superadmins_initialized'").Scan(&initialized); err != nil {
@@ -146,6 +157,9 @@ func (s *Store) initialize(seeds []Selector) error {
 		if _, err = tx.Exec("INSERT INTO auth_meta VALUES('superadmins_initialized','1')"); err != nil {
 			return err
 		}
+	}
+	if err = initializeAccess(tx); err != nil {
+		return err
 	}
 	if _, err = tx.Exec("DELETE FROM sessions WHERE expires_at<=?", time.Now().Unix()); err != nil {
 		return err
@@ -200,6 +214,11 @@ func insertEntry(tx *sql.Tx, e Entry, actor string) error {
 	if err != nil {
 		return err
 	}
+	if e.Subject != "" {
+		if err := grantIdentity(tx, e.Provider, e.Subject, e.Role); err != nil {
+			return err
+		}
+	}
 	return audit(tx, actor, "add", e.ID)
 }
 func audit(tx *sql.Tx, actor, action, id string) error {
@@ -208,11 +227,11 @@ func audit(tx *sql.Tx, actor, action, id string) error {
 }
 func requireAdmin(tx *sql.Tx, actor Identity) error {
 	var count int
-	err := tx.QueryRow("SELECT COUNT(*) FROM allowlist WHERE provider=? AND subject=? AND enabled=1 AND role='superadmin'", actor.Provider, actor.Subject).Scan(&count)
+	err := tx.QueryRow(`SELECT COUNT(*) FROM user_identities i JOIN app_users p ON p.id=i.user_id JOIN user_access a ON a.user_id=p.id WHERE i.provider=? AND i.subject=? AND p.status='active' AND a.enabled=1 AND a.role='superadmin'`, actor.Provider, actor.Subject).Scan(&count)
 	if err != nil {
 		return err
 	}
-	if count != 1 {
+	if count < 1 {
 		return errAdmin
 	}
 	return nil
@@ -235,6 +254,7 @@ func (s *Store) RememberIdentity(i Identity) error {
 	if err != nil {
 		return err
 	}
+	boundInvitation := false
 	if i.Provider == "google" && i.EmailTrusted && i.Email != "" {
 		// An email invitation binds once to a verified subject. It never follows a recycled email.
 		var bound int
@@ -248,12 +268,25 @@ func (s *Store) RememberIdentity(i Identity) error {
 				if _, err = tx.Exec("UPDATE allowlist SET subject=?,version=version+1,updated_at=? WHERE id=?", i.Subject, timestamp(), id); err != nil {
 					return err
 				}
+				boundInvitation = true
 				if err = audit(tx, "google:"+i.Subject, "bind", id); err != nil {
 					return err
 				}
 			} else if !errors.Is(err, sql.ErrNoRows) {
 				return err
 			}
+		}
+	}
+	if err = ensureAccount(tx, i); err != nil {
+		return err
+	}
+	if boundInvitation {
+		var role string
+		if err = tx.QueryRow("SELECT role FROM allowlist WHERE provider=? AND subject=? AND enabled=1", i.Provider, i.Subject).Scan(&role); err != nil {
+			return err
+		}
+		if err = grantIdentity(tx, i.Provider, i.Subject, role); err != nil {
+			return err
 		}
 	}
 	return tx.Commit()
@@ -272,20 +305,19 @@ func (s *Store) Session(token string) (*User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var u User
-	var role sql.NullString
-	var enabled sql.NullBool
-	err := s.db.QueryRow(`SELECT u.provider,u.subject,u.username,u.email,u.display_name,a.role,a.enabled
+	err := s.db.QueryRow(`SELECT u.provider,u.subject,u.username,u.email,p.display_name,p.id,a.enabled,a.role
  FROM sessions s JOIN users u ON u.provider=s.provider AND u.subject=s.subject
- LEFT JOIN allowlist a ON a.provider=u.provider AND a.subject=u.subject WHERE s.token_hash=? AND s.expires_at>?`, digest(token), time.Now().Unix()).Scan(&u.Provider, &u.Subject, &u.Username, &u.Email, &u.DisplayName, &role, &enabled)
+ JOIN user_identities i ON i.provider=u.provider AND i.subject=u.subject JOIN app_users p ON p.id=i.user_id
+ JOIN user_access a ON a.user_id=p.id
+ WHERE s.token_hash=? AND s.expires_at>? AND p.status='active'`, digest(token), time.Now().Unix()).Scan(&u.Provider, &u.Subject, &u.Username, &u.Email, &u.DisplayName, &u.ID, &u.Allowed, &u.Role)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	u.Allowed = enabled.Valid && enabled.Bool
-	if u.Allowed {
-		u.Role = role.String
+	if !u.Allowed {
+		u.Role = ""
 	}
 	return &u, nil
 }
@@ -373,10 +405,18 @@ func (s *Store) SetEnabled(actor Identity, id string, enabled bool, version int6
 	if e.Protected || e.Role == "superadmin" {
 		return e, errors.New("初始超管受保护，不能在白名单页面停用或修改")
 	}
+	var unifiedRole string
+	_ = tx.QueryRow("SELECT a.role FROM user_access a JOIN user_identities i ON i.user_id=a.user_id WHERE i.provider=? AND i.subject=?", e.Provider, e.Subject).Scan(&unifiedRole)
+	if unifiedRole == "superadmin" {
+		return e, errors.New("初始超管账号不可停用")
+	}
 	if e.Version != version {
 		return e, errors.New("白名单已变化，请刷新后重试")
 	}
 	if _, err = tx.Exec("UPDATE allowlist SET enabled=?,version=version+1,updated_at=? WHERE id=?", enabled, timestamp(), id); err != nil {
+		return e, err
+	}
+	if _, err = tx.Exec("UPDATE user_access SET enabled=?,version=version+1 WHERE user_id=(SELECT user_id FROM user_identities WHERE provider=? AND subject=?)", enabled, e.Provider, e.Subject); err != nil {
 		return e, err
 	}
 	action := "disable"
