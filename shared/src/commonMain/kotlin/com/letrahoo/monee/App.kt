@@ -37,8 +37,7 @@ private val Line = Color(0xFFE4E9E1)
 private fun requestKey() = List(32) { "0123456789abcdef"[Random.nextInt(16)] }.joinToString("")
 
 @Composable
-fun App() {
-    val api = remember { LedgerApi() }
+internal fun LedgerScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError:String?,onLogout:()->Unit,onManage:()->Unit,onAccessLost:()->Unit) {
     val scope = rememberCoroutineScope()
     var dashboard by remember { mutableStateOf<Dashboard?>(null) }
     var month by remember { mutableStateOf("") }
@@ -59,7 +58,6 @@ fun App() {
     var input by remember { mutableStateOf(TransactionInput()) }
     var createKey by remember { mutableStateOf(requestKey()) }
 
-    DisposableEffect(api) { onDispose { api.close() } }
     LaunchedEffect(month, query, page, refresh) {
         loading = true
         try {
@@ -67,7 +65,7 @@ fun App() {
             dashboard = api.dashboard(month,query,page)
             connectionError = null
         } catch (e: CancellationException) { throw e
-        } catch (e: Exception) { connectionError = e.message ?: "本地服务暂不可用"
+        } catch (e: Exception) { if(e is LedgerException&&e.accessLost)onAccessLost() else connectionError = e.message ?: "本地服务暂不可用"
         } finally { loading = false }
     }
     LaunchedEffect(Unit) {
@@ -77,7 +75,7 @@ fun App() {
         scope.launch {
             working = true; actionError = null; notice = null
             try { action() } catch (e: CancellationException) { throw e
-            } catch (e: Exception) { actionError = e.message ?: "操作失败，请检查后重试"
+            } catch (e: Exception) { if(e is LedgerException&&e.accessLost)onAccessLost() else actionError = e.message ?: "操作失败，请检查后重试"
             } finally { working = false }
         }
     }
@@ -103,6 +101,14 @@ fun App() {
                         Text("Know Your Money. Own Your Future.",fontSize=if(compact)10.sp else 12.sp,color=Muted)
                     }
                     Text("本地账本",fontSize=12.sp,color=Pine)
+                }
+                Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                    Text("${user.provider.displayProvider()} · ${user.label}${if(user.role=="superadmin")" · 超管"else""}",fontSize=12.sp,color=Muted)
+                    Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                        if(user.role=="superadmin")TextButton(onClick=onManage,enabled=!working&&!authBusy){Text("管理白名单")}
+                        TextButton(onClick=onLogout,enabled=!working&&!authBusy){Text("退出登录")}
+                    }
+                    authError?.let{Text(it,color=MaterialTheme.colors.error)}
                 }
                 Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text("把钱看明白，把生活过从容。",fontSize=if(compact)24.sp else 34.sp,fontWeight=FontWeight.Bold)

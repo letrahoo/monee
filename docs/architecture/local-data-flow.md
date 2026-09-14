@@ -2,6 +2,8 @@
 
 更新：2026-09-14。本文描述已实现能力；[完整 MVP 架构提案](mvp-proposal.md) 中的后续模块不代表已经交付。
 
+当前已增加强制 Google / GitHub 登录与白名单；登录配置及新的会话流程见[登录与访问白名单](login-and-access.md)。旧的共享本地访问令牌已移除。
+
 ## 当前闭环
 
 ```mermaid
@@ -16,7 +18,7 @@ flowchart LR
     Report --> API
 ```
 
-Go 同时提供 Web 静态资源和 API。Web 与 Mac 只通过 API 操作数据；只有一个 Go 进程拥有同一账本目录。两个客户端每 5 秒读取一次，支持手动刷新。网络失败明确提示；曾经成功读取的数据会标为旧数据，不回退到合成样本。
+Go 同时提供 Web 静态资源和 API。Web 与 Mac 只通过 API 操作数据；只有一个 Go 进程拥有同一账本目录。两个客户端每 5 秒读取一次，支持手动刷新。网络失败明确提示；数据请求失败时标记旧数据，登录状态检查失败或权限撤销时隐藏账本，不回退到合成样本。
 
 KMP 的共享部分是 Compose UI、状态、DTO、Ktor API 访问与金额格式化；JVM 平台提供 CIO 网络引擎、私有连接文件读取及文件选择器，Wasm 平台提供浏览器网络引擎、同源连接发现及文件选择器。
 
@@ -35,7 +37,7 @@ macOS 默认目录为 `~/Library/Application Support/Monee/`，Linux 为 Go 的�
 
 可用环境变量 `MONEE_DATA_DIR` 更改私有目录；Mac 与服务必须使用同一目录。服务也支持 `-data-dir`、`-listen` 和 `-web-dir`。当前只提供 macOS / Linux 的服务锁实现。
 
-使用合成样本时，创建独立测试账本：
+使用合成样本时，创建独立测试账本并为测试端口单独配置 OAuth（本段不是免登录入口）：
 
 ```sh
 MONEE_DATA_DIR="$PWD/.local/test-ledger" ./scripts/run-local.sh -listen 127.0.0.1:4174
@@ -52,18 +54,20 @@ MONEE_DATA_DIR="$PWD/.local/test-ledger" ./gradlew :desktopApp:run
 | 接口 | 行为 |
 | --- | --- |
 | `GET /api/v1/health` | API / schema 版本和存活状态，不含账本信息 |
-| `GET /api/v1/session` | 同源浏览器取得本次运行的连接凭据 |
+| `GET /api/v1/auth/me` | 当前已验证身份、是否获准和角色；未登录不含身份 |
 | `GET /api/v1/dashboard` | 月度统计、月份列表、搜索与每页 50 笔明细 |
 | `POST /api/v1/transactions` | 带 Idempotency-Key 创建普通收入或支出 |
 | `POST /api/v1/imports/preview` | 保存通过校验的批次与原始 CSV，返回逐行校验/重复情况，不写入正式交易 |
 | `POST /api/v1/imports/{id}/commit` | 按预览版本原子入账；重复请求返回同一提交结果 |
 | `GET /api/v1/template` | 标准表头；sample=true 返回明确标注的合成样本 |
 
-仅绑定 `127.0.0.1`，固定端口，不提供跨域 CORS。校验 Host、Origin 和浏览器 Fetch Metadata。除 health/session 外，API 要求 Bearer token；JSON 写请求限定类型、大小和字段。Web 必须从服务自身地址打开，不能改用 localhost 别名或独立开发端口。
+仅绑定 `127.0.0.1`，固定端口，不提供跨域 CORS。数据接口要求通过 Google / GitHub 验证并存在于白名单。Web 使用 HttpOnly 会话 cookie 和受保护写请求的 CSRF proof；Mac 通过系统浏览器授权后领取绑定到该客户端的一次性会话。会话最长 12 小时，每次数据访问重新检查白名单。
 
-服务每次启动生成随机 token，原子写入私有 `connection.json`。Mac 读取该文件，Web 的 session 请求要求浏览器 same-origin 标记。客户端遇到 401 重新发现凭据并重试一次；其他不确定写入由用户重试，通过幂等机制避免重记。token 不进入 URL、日志或 Git。
+`connection.json` 仅包含本地 baseUrl，不再包含任何数据访问 token。身份、访问名单、会话哈希和审计在独立的 auth.db 中；OAuth 凭据来自私有 auth.json，不进入 Git。原有账单数据库结构不受本次登录接入影响。
 
-这些措施防止普通外部网页访问本地账本，不隔离同一操作系统用户的恶意程序；同一用户本就能读取本地数据库。当前不支持远程访问、用户登录或 HTTPS 服务器模式。
+初始超管在首次初始化时指定；普通成员不能管理白名单。用户从名单停用后，下一次数据请求返回 403。Host / Origin / Fetch Metadata 继续校验，仅固定 OAuth 回调和顶层导航作必要例外；不能把例外用于数据接口。
+
+未来远程服务器模式还需要 HTTPS、Secure cookie、部署地址与新的客户端配置。当前只支持本机服务，OAuth 不替代操作系统文件权限。
 
 ## 金额与统计
 

@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -18,6 +16,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/letrahoo/monee/server/internal/auth"
 	"github.com/letrahoo/monee/server/internal/httpapi"
 	"github.com/letrahoo/monee/server/internal/ledger"
 )
@@ -34,6 +33,7 @@ func run() error {
 	dataDir := flag.String("data-dir", defaultData, "private local ledger directory")
 	listen := flag.String("listen", "127.0.0.1:4173", "IPv4 loopback address")
 	webDir := flag.String("web-dir", "", "built Web asset directory")
+	authConfigPath := flag.String("auth-config", "", "private OAuth configuration file (defaults to auth.json in data directory)")
 	flag.Parse()
 	host, port, err := net.SplitHostPort(*listen)
 	if err != nil || host != "127.0.0.1" || port == "0" {
@@ -64,13 +64,22 @@ func run() error {
 		return err
 	}
 	defer store.Close()
-	tokenBytes := make([]byte, 32)
-	if _, err = rand.Read(tokenBytes); err != nil {
+	if *authConfigPath == "" {
+		*authConfigPath = filepath.Join(*dataDir, "auth.json")
+	}
+	config, err := auth.LoadConfig(*authConfigPath)
+	if err != nil {
 		return err
 	}
-	token := hex.EncodeToString(tokenBytes)
-	connection, _ := json.Marshal(map[string]string{"baseUrl": "http://" + listener.Addr().String(), "token": token})
-	// Rotate on startup. Same-user native clients rediscover credentials on reconnect.
+	accessStore, err := auth.Open(filepath.Join(*dataDir, "auth.db"), config.Superadmins)
+	if err != nil {
+		return err
+	}
+	defer accessStore.Close()
+	baseURL := "http://" + listener.Addr().String()
+	access := auth.NewService(accessStore, auth.NewProviders(config, baseURL), baseURL)
+	connection, _ := json.Marshal(map[string]string{"baseUrl": baseURL})
+	// Discovery contains no account credentials. Both clients must complete OAuth.
 	path := filepath.Join(*dataDir, "connection.json")
 	if err = os.WriteFile(path+".tmp", connection, 0600); err != nil {
 		return err
@@ -81,7 +90,7 @@ func run() error {
 	if err = os.Rename(path+".tmp", path); err != nil {
 		return err
 	}
-	api := httpapi.API{Store: store, Token: token, Host: listener.Addr().String(), WebDir: *webDir}
+	api := httpapi.API{Store: store, Auth: access, Host: listener.Addr().String(), WebDir: *webDir}
 	server := &http.Server{Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

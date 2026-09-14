@@ -8,20 +8,33 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/letrahoo/monee/server/internal/auth"
 	"github.com/letrahoo/monee/server/internal/ledger"
 )
 
-const token = "test-token-that-is-only-a-fixture"
 const host = "127.0.0.1:4173"
 
-func apiForTest(t *testing.T) http.Handler {
+func apiForTest(t *testing.T) (http.Handler, string) {
 	t.Helper()
 	s, e := ledger.Open(filepath.Join(t.TempDir(), "ledger.db"))
 	if e != nil {
 		t.Fatal(e)
 	}
 	t.Cleanup(func() { s.Close() })
-	return API{Store: s, Token: token, Host: host}.Handler()
+	access, e := auth.Open(filepath.Join(t.TempDir(), "auth.db"), []auth.Selector{{Provider: "github", Kind: "subject", Value: "1001"}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { access.Close() })
+	identity := auth.Identity{Provider: "github", Subject: "1001", Username: "test-admin"}
+	if e = access.RememberIdentity(identity); e != nil {
+		t.Fatal(e)
+	}
+	token, e := access.CreateSession(identity)
+	if e != nil {
+		t.Fatal(e)
+	}
+	return API{Store: s, Auth: auth.NewService(access, nil, "http://"+host), Host: host}.Handler(), token
 }
 func request(h http.Handler, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, "http://"+host+path, strings.NewReader(body))
@@ -33,7 +46,7 @@ func request(h http.Handler, method, path, body string, headers map[string]strin
 	return w
 }
 func TestLoopbackAuthAndOriginBoundary(t *testing.T) {
-	h := apiForTest(t)
+	h, token := apiForTest(t)
 	for _, tc := range []struct {
 		path    string
 		headers map[string]string
@@ -41,9 +54,9 @@ func TestLoopbackAuthAndOriginBoundary(t *testing.T) {
 	}{
 		{"/api/v1/dashboard", nil, 401},
 		{"/api/v1/dashboard", map[string]string{"Authorization": token}, 401},
-		{"/api/v1/session", nil, 403},
+		{"/api/v1/session", nil, 401},
 		{"/api/v1/session", map[string]string{"Sec-Fetch-Site": "cross-site"}, 403},
-		{"/api/v1/session", map[string]string{"Sec-Fetch-Site": "same-origin"}, 200},
+		{"/api/v1/auth/me", map[string]string{"Sec-Fetch-Site": "same-origin"}, 200},
 		{"/api/v1/dashboard", map[string]string{"Authorization": "Bearer " + token, "Origin": "https://evil.example"}, 403},
 		{"/api/v1/dashboard", map[string]string{"Authorization": "Bearer " + token, "Sec-Fetch-Site": "same-site"}, 403},
 		{"/api/v1/dashboard", map[string]string{"Authorization": "Bearer " + token}, 200},
@@ -64,7 +77,7 @@ func TestLoopbackAuthAndOriginBoundary(t *testing.T) {
 	}
 }
 func TestRealAPIWriteReadAndValidation(t *testing.T) {
-	h := apiForTest(t)
+	h, token := apiForTest(t)
 	headers := map[string]string{"Authorization": "Bearer " + token, "Content-Type": "application/json", "Idempotency-Key": "http-test-request-0001"}
 	body := `{"date":"2026-09-14","type":"expense","amount":"12.34","currency":"CNY","merchant":"测试中文","source":"手动"}`
 	w := request(h, "POST", "/api/v1/transactions", body, headers)

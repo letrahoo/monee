@@ -15,3 +15,7 @@ connection.json.tmp
 *.db
 *.db-shm
 *.db-wal
+
+auth.json
+auth-*.tmp
+client_secret*.json

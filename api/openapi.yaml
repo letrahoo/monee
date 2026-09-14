@@ -1,19 +1,21 @@
+---
 openapi: 3.1.0
 info:
   title: Monee Local Ledger API
-  version: 1.0.0
-  description: |
-    Single-user loopback API. Only CNY ordinary income/expense is supported.
-    Input amounts are positive decimal yuan strings; response amounts are integer fen strings.
-    JSON write bodies are limited to 3 MiB and reject unknown fields.
-    Requests require the exact configured Host. A supplied Origin must match that host;
-    cross-site/same-site Fetch Metadata is rejected. No cross-origin CORS is offered.
+  version: 1.1.0
+  description: Local Google/GitHub login with server-enforced allowlist. Members share
+    one ledger. Unauthenticated data requests return 401; authenticated identities
+    without access return 403. OAuth callbacks require state and browser binding.
+    All cookie-authenticated protected writes require X-Monee-CSRF. Only loopback
+    HTTP is supported. Money remains decimal strings; no provider tokens are exposed
+    to clients.
 servers:
-  - url: http://127.0.0.1:4173
+- url: http://127.0.0.1:4173
 security:
-  - localBearer: []
+- localBearer: []
+- browserSession: []
 paths:
-  /api/v1/health:
+  "/api/v1/health":
     get:
       operationId: health
       security: []
@@ -24,79 +26,94 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [status, apiVersion, schemaVersion]
+                required:
+                - status
+                - apiVersion
+                - schemaVersion
                 properties:
-                  status: {type: string, const: ok}
-                  apiVersion: {type: integer, const: 1}
-                  schemaVersion: {type: integer, const: 1}
-        default: {$ref: '#/components/responses/Error'}
-  /api/v1/session:
+                  status:
+                    type: string
+                    const: ok
+                  apiVersion:
+                    type: integer
+                    const: 1
+                  schemaVersion:
+                    type: integer
+                    const: 1
+        default:
+          "$ref": "#/components/responses/Error"
+  "/api/v1/dashboard":
     get:
-      operationId: browserSession
-      security: []
-      description: Browser fetch must have Sec-Fetch-Site same-origin. Native clients read the private connection.json instead.
+      operationId: dashboard
+      description: Statistics cover the entire month. Search and page only filter
+        the transaction list.
       parameters:
-        - in: header
-          name: Sec-Fetch-Site
-          required: true
-          schema: {type: string, const: same-origin}
+      - in: query
+        name: month
+        description: YYYY-MM between 1900 and 2200; empty or omitted selects this
+          month in Asia/Shanghai.
+        schema:
+          type: string
+      - in: query
+        name: q
+        description: Case-insensitive literal substring of merchant, category, source,
+          account or note.
+        schema:
+          type: string
+          maxLength: 100
+      - in: query
+        name: page
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100000
+          default: 1
       responses:
         '200':
-          description: Ephemeral connection credentials. Never persist in URLs or logs.
+          description: Monthly aggregates and at most 50 transactions, sorted by date
+            and creation time descending, then ID.
           content:
             application/json:
               schema:
-                type: object
-                required: [baseUrl, token]
-                properties:
-                  baseUrl: {type: string, format: uri}
-                  token: {type: string}
-        default: {$ref: '#/components/responses/Error'}
-  /api/v1/dashboard:
-    get:
-      operationId: dashboard
-      description: Statistics cover the entire month. Search and page only filter the transaction list.
-      parameters:
-        - in: query
-          name: month
-          description: YYYY-MM between 1900 and 2200; empty or omitted selects this month in Asia/Shanghai.
-          schema: {type: string}
-        - in: query
-          name: q
-          description: Case-insensitive literal substring of merchant, category, source, account or note.
-          schema: {type: string, maxLength: 100}
-        - in: query
-          name: page
-          schema: {type: integer, minimum: 1, maximum: 100000, default: 1}
-      responses:
-        '200':
-          description: Monthly aggregates and at most 50 transactions, sorted by date and creation time descending, then ID.
-          content:
-            application/json:
-              schema: {$ref: '#/components/schemas/Dashboard'}
-        default: {$ref: '#/components/responses/Error'}
-  /api/v1/transactions:
+                "$ref": "#/components/schemas/Dashboard"
+        default:
+          "$ref": "#/components/responses/Error"
+  "/api/v1/transactions":
     post:
       operationId: createTransaction
-      description: Same key and normalized input return the same transaction, including after a lost response. Changing the input under that key returns 409.
+      description: Same key and normalized input return the same transaction, including
+        after a lost response. Changing the input under that key returns 409.
       parameters:
-        - in: header
-          name: Idempotency-Key
-          required: true
-          schema: {type: string, minLength: 16, maxLength: 128}
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required when authenticating this write with a browser cookie;
+          use the proof from auth/me. Not required for native Bearer sessions.
+        schema: &1
+          type: string
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/TransactionInput'}
+            schema:
+              "$ref": "#/components/schemas/TransactionInput"
       responses:
         '201':
           description: Persisted transaction (also returned for an idempotent replay).
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/Transaction'}
-        default: {$ref: '#/components/responses/Error'}
-  /api/v1/imports/preview:
+              schema:
+                "$ref": "#/components/schemas/Transaction"
+        default:
+          "$ref": "#/components/responses/Error"
+  "/api/v1/imports/preview":
     post:
       operationId: previewImport
       description: |
@@ -113,18 +130,33 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [csv]
+              required:
+              - csv
               properties:
-                filename: {type: string, description: Basename is retained; at most 200 characters after basename extraction.}
-                csv: {type: string}
+                filename:
+                  type: string
+                  description: Basename is retained; at most 200 characters after
+                    basename extraction.
+                csv:
+                  type: string
       responses:
         '200':
-          description: Preview with errors, duplicate/similar status or alreadyCommitted indication.
+          description: Preview with errors, duplicate/similar status or alreadyCommitted
+            indication.
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/ImportPreview'}
-        default: {$ref: '#/components/responses/Error'}
-  /api/v1/imports/{id}/commit:
+              schema:
+                "$ref": "#/components/schemas/ImportPreview"
+        default:
+          "$ref": "#/components/responses/Error"
+      parameters:
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required when authenticating this write with a browser cookie;
+          use the proof from auth/me. Not required for native Bearer sessions.
+        schema: *1
+  "/api/v1/imports/{id}/commit":
     post:
       operationId: commitImport
       description: |
@@ -132,10 +164,18 @@ paths:
         Similar records require confirmSimilar=true, acknowledging they are independent transactions.
         This does not merge cross-source records. Already committed batches return the original result.
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema: {type: string, format: uuid}
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required when authenticating this write with a browser cookie;
+          use the proof from auth/me. Not required for native Bearer sessions.
+        schema: *1
       requestBody:
         required: true
         content:
@@ -144,145 +184,806 @@ paths:
               type: object
               additionalProperties: false
               properties:
-                ledgerVersion: {type: integer, format: int64, default: 0}
-                confirmSimilar: {type: boolean, default: false}
+                ledgerVersion:
+                  type: integer
+                  format: int64
+                  default: 0
+                confirmSimilar:
+                  type: boolean
+                  default: false
       responses:
         '200':
-          description: Original commit result; added/skipped are counts for that batch, not this HTTP request.
+          description: Original commit result; added/skipped are counts for that batch,
+            not this HTTP request.
           content:
             application/json:
               schema:
                 type: object
-                required: [importId, added, skipped, month]
+                required:
+                - importId
+                - added
+                - skipped
+                - month
                 properties:
-                  importId: {type: string, format: uuid}
-                  added: {type: integer, minimum: 0}
-                  skipped: {type: integer, minimum: 0}
-                  month: {type: string, description: Latest business month in this batch.}
-        default: {$ref: '#/components/responses/Error'}
-  /api/v1/template:
+                  importId:
+                    type: string
+                    format: uuid
+                  added:
+                    type: integer
+                    minimum: 0
+                  skipped:
+                    type: integer
+                    minimum: 0
+                  month:
+                    type: string
+                    description: Latest business month in this batch.
+        default:
+          "$ref": "#/components/responses/Error"
+  "/api/v1/template":
     get:
       operationId: csvTemplate
       parameters:
-        - in: query
-          name: sample
-          schema: {type: boolean, default: false}
+      - in: query
+        name: sample
+        schema:
+          type: boolean
+          default: false
       responses:
         '200':
           description: Standard CSV header, with three synthetic records when sample=true.
           content:
             text/csv:
-              schema: {type: string}
-        default: {$ref: '#/components/responses/Error'}
+              schema:
+                type: string
+        default:
+          "$ref": "#/components/responses/Error"
+  "/api/v1/auth/me":
+    get:
+      operationId: authState
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AuthState"
+        default:
+          "$ref": "#/components/responses/Error"
+      security: []
+  "/api/v1/auth/start":
+    post:
+      operationId: startLogin
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  url:
+                    type: string
+                    format: uri
+                  expiresIn:
+                    type: integer
+                    const: 600
+                required:
+                - id
+                - url
+                - expiresIn
+        default:
+          "$ref": "#/components/responses/Error"
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  enum:
+                  - google
+                  - github
+                client:
+                  type: string
+                  enum:
+                  - web
+                  - desktop
+                challenge:
+                  type: string
+                  description: 'Required for desktop: base64url SHA-256 of a random
+                    32-byte base64url verifier. Empty for web.'
+              required:
+              - provider
+              - client
+              additionalProperties: false
+      description: Creates a bounded, 10-minute login attempt. Returns 503 when this
+        provider is not configured. Navigate the browser to the returned URL; no application
+        session is returned here.
+  "/api/v1/auth/native/poll":
+    post:
+      operationId: nativeLoginResult
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - pending
+                    - complete
+                    - failed
+                  token:
+                    type: string
+                    description: Opaque application session only on the single successful
+                      redemption. Never put it in a URL.
+                required:
+                - status
+                - token
+        default:
+          "$ref": "#/components/responses/Error"
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                verifier:
+                  type: string
+                  pattern: "^[A-Za-z0-9_-]{43}$"
+              required:
+              - id
+              - verifier
+              additionalProperties: false
+      description: Proof-bound native exchange. Poll at 2-second intervals. Expired,
+        mismatched or already redeemed attempts return 401. A lost successful response
+        requires starting a new login.
+  "/api/v1/auth/logout":
+    post:
+      operationId: logout
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                required:
+                - ok
+        default:
+          "$ref": "#/components/responses/Error"
+      security: []
+      description: Revokes the current session. Cookie-authenticated callers must
+        supply X-Monee-CSRF. An already absent session is also successful.
+      parameters:
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required when authenticating this write with a browser cookie;
+          use the proof from auth/me. Not required for native Bearer sessions.
+        schema: *1
+  "/api/v1/admin/allowlist":
+    get:
+      operationId: listAllowlist
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/AccessEntry"
+                required:
+                - entries
+        default:
+          "$ref": "#/components/responses/Error"
+      description: Superadmin only. Includes enabled/disabled members and protected
+        bootstrap administrators.
+    post:
+      operationId: addAllowlistMember
+      responses:
+        default:
+          "$ref": "#/components/responses/Error"
+        '201':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AccessEntry"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/AccessSelector"
+      description: Superadmin only. Creates an ordinary member. Duplicate identity
+        returns 409. GitHub username lookup failure does not grant access.
+      parameters:
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required when authenticating this write with a browser cookie;
+          use the proof from auth/me. Not required for native Bearer sessions.
+        schema: *1
+  "/api/v1/admin/allowlist/{id}":
+    patch:
+      operationId: changeAllowlistAccess
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AccessEntry"
+        default:
+          "$ref": "#/components/responses/Error"
+      description: Superadmin only. Protected administrators cannot be changed. Version
+        conflicts return 409. Disabling blocks subsequent data requests, including
+        existing sessions.
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required when authenticating this write with a browser cookie;
+          use the proof from auth/me. Not required for native Bearer sessions.
+        schema: *1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                version:
+                  type: integer
+                  format: int64
+              required:
+              - enabled
+              - version
+              additionalProperties: false
+  "/api/v1/admin/audit":
+    get:
+      operationId: accessAudit
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    maxItems: 100
+                    items:
+                      "$ref": "#/components/schemas/AccessAudit"
+                required:
+                - events
+        default:
+          "$ref": "#/components/responses/Error"
+      description: Superadmin only. Latest 100 access changes, newest first.
+  "/auth/begin":
+    get:
+      operationId: beginBrowserLogin
+      security: []
+      parameters:
+      - in: query
+        name: ticket
+        required: true
+        schema:
+          type: string
+      responses:
+        '303': &2
+          description: Browser redirect. Invalid, expired or cancelled attempts redirect
+            to a fixed result page, never an arbitrary return URL.
+          headers:
+            Location:
+              schema:
+                type: string
+  "/auth/callback/{provider}":
+    get:
+      operationId: oauthCallback
+      security: []
+      description: Requires the original browser binding cookie and one-time state;
+        exchanges code with PKCE and verifies the provider identity. Only GET callbacks
+        are supported.
+      parameters:
+      - in: path
+        name: provider
+        required: true
+        schema:
+          type: string
+          enum:
+          - google
+          - github
+      - in: query
+        name: state
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: code
+        schema:
+          type: string
+      - in: query
+        name: error
+        schema:
+          type: string
+      responses:
+        '303': *2
+  "/auth/result":
+    get:
+      operationId: loginResultPage
+      security: []
+      responses:
+        '200':
+          description: Fixed login outcome page containing no authorization code or
+            session token.
+          content:
+            text/html:
+              schema:
+                type: string
 components:
   securitySchemes:
     localBearer:
       type: http
       scheme: bearer
-      description: Random token rotated on service startup. Obtain from same-origin session or private native connection file.
+      description: Opaque 12-hour application session obtained only by the native
+        proof-bound OAuth exchange. The connection file contains no token.
+    browserSession:
+      type: apiKey
+      in: cookie
+      name: monee_session_eLaGr4oiqzKw
+      description: HttpOnly SameSite=Lax session. The cookie name uses an origin hash;
+        this name is for the default origin. Follow Set-Cookie when using a different
+        port.
   responses:
     Error:
-      description: |
-        400 malformed/oversized JSON; 401 missing/invalid token; 403 invalid host/origin;
-        404 unknown import; 409 identity/idempotency/preview conflict;
-        415 non-JSON write; 422 business validation; 500 internal failure.
-        Unknown routes and unsupported methods may use the HTTP router's plain-text 404/405.
+      description: 400 malformed JSON; 401 absent/expired session or invalid native
+        proof; 403 data access denied, admin role required, CSRF or origin rejected;
+        404 unknown resource; 409 identity/version conflict; 415 non-JSON write; 422
+        validation; 429 too many login attempts; 503 provider unconfigured; 500 internal
+        failure. Unknown routes may use plain-text 404/405.
       content:
         application/json:
           schema:
             type: object
-            required: [code, message]
+            required:
+            - code
+            - message
             properties:
-              code: {type: string}
-              message: {type: string}
+              code:
+                type: string
+              message:
+                type: string
   schemas:
     Minor:
       type: string
-      pattern: '^-?[0-9]+$'
+      pattern: "^-?[0-9]+$"
       description: Signed 64-bit integer fen as a decimal string. Never a JSON number.
     TransactionInput:
       type: object
       additionalProperties: false
-      required: [date, type, amount, currency, merchant, source]
+      required:
+      - date
+      - type
+      - amount
+      - currency
+      - merchant
+      - source
       properties:
-        date: {type: string, format: date, description: Valid Gregorian date between 1900 and 2200.}
-        type: {type: string, enum: [income, expense, 收入, 支出]}
+        date:
+          type: string
+          format: date
+          description: Valid Gregorian date between 1900 and 2200.
+        type:
+          type: string
+          enum:
+          - income
+          - expense
+          - 收入
+          - 支出
         amount:
           type: string
-          pattern: '^[0-9]{1,11}(\.[0-9]{1,2})?$'
+          pattern: "^[0-9]{1,11}(\\.[0-9]{1,2})?$"
           description: Positive yuan, up to 10000000000.00; trimmed before validation.
-        currency: {type: string, const: CNY}
-        merchant: {type: string, minLength: 1, maxLength: 200}
-        category: {type: string, maxLength: 200, description: Empty becomes 未分类.}
-        source: {type: string, minLength: 1, maxLength: 200}
-        account: {type: string, maxLength: 200, description: Empty becomes 待核实资金账户.}
-        externalId: {type: string, maxLength: 200}
-        note: {type: string, maxLength: 1000}
+        currency:
+          type: string
+          const: CNY
+        merchant:
+          type: string
+          minLength: 1
+          maxLength: 200
+        category:
+          type: string
+          maxLength: 200
+          description: Empty becomes 未分类.
+        source:
+          type: string
+          minLength: 1
+          maxLength: 200
+        account:
+          type: string
+          maxLength: 200
+          description: Empty becomes 待核实资金账户.
+        externalId:
+          type: string
+          maxLength: 200
+        note:
+          type: string
+          maxLength: 1000
     Transaction:
       type: object
-      required: [id, date, type, amountMinor, currency, merchant, category, source, account, externalId, note, version]
+      required:
+      - id
+      - date
+      - type
+      - amountMinor
+      - currency
+      - merchant
+      - category
+      - source
+      - account
+      - externalId
+      - note
+      - version
       properties:
-        id: {type: string, format: uuid}
-        date: {type: string, format: date}
-        type: {type: string, enum: [income, expense]}
-        amountMinor: {$ref: '#/components/schemas/Minor'}
-        currency: {type: string, const: CNY}
-        merchant: {type: string}
-        category: {type: string}
-        source: {type: string}
-        account: {type: string, description: Currently a clearing account; does not imply a verified asset balance.}
-        externalId: {type: string}
-        note: {type: string}
-        version: {type: integer, format: int64, minimum: 1}
+        id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        type:
+          type: string
+          enum:
+          - income
+          - expense
+        amountMinor:
+          "$ref": "#/components/schemas/Minor"
+        currency:
+          type: string
+          const: CNY
+        merchant:
+          type: string
+        category:
+          type: string
+        source:
+          type: string
+        account:
+          type: string
+          description: Currently a clearing account; does not imply a verified asset
+            balance.
+        externalId:
+          type: string
+        note:
+          type: string
+        version:
+          type: integer
+          format: int64
+          minimum: 1
     Dashboard:
       type: object
-      required: [ledgerId, version, month, today, months, incomeMinor, expenseMinor, sourceCount, totalCount, filteredCount, page, pageSize, categories, transactions]
+      required:
+      - ledgerId
+      - version
+      - month
+      - today
+      - months
+      - incomeMinor
+      - expenseMinor
+      - sourceCount
+      - totalCount
+      - filteredCount
+      - page
+      - pageSize
+      - categories
+      - transactions
       properties:
-        ledgerId: {type: string, format: uuid}
-        version: {type: integer, format: int64, minimum: 0}
-        month: {type: string}
-        today: {type: string, format: date}
-        months: {type: array, items: {type: string}, description: Descending; includes selected month and current month.}
-        incomeMinor: {$ref: '#/components/schemas/Minor', description: Nonnegative monthly income in fen.}
-        expenseMinor: {$ref: '#/components/schemas/Minor', description: Nonnegative monthly expense in fen.}
-        sourceCount: {type: integer, minimum: 0}
-        totalCount: {type: integer, minimum: 0}
-        filteredCount: {type: integer, minimum: 0}
-        page: {type: integer, minimum: 1}
-        pageSize: {type: integer, const: 50}
+        ledgerId:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+        month:
+          type: string
+        today:
+          type: string
+          format: date
+        months:
+          type: array
+          items:
+            type: string
+          description: Descending; includes selected month and current month.
+        incomeMinor:
+          "$ref": "#/components/schemas/Minor"
+          description: Nonnegative monthly income in fen.
+        expenseMinor:
+          "$ref": "#/components/schemas/Minor"
+          description: Nonnegative monthly expense in fen.
+        sourceCount:
+          type: integer
+          minimum: 0
+        totalCount:
+          type: integer
+          minimum: 0
+        filteredCount:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          const: 50
         categories:
           type: array
           description: Expense categories sorted by amount descending then name.
           items:
             type: object
-            required: [name, amountMinor]
+            required:
+            - name
+            - amountMinor
             properties:
-              name: {type: string}
-              amountMinor: {$ref: '#/components/schemas/Minor', description: Positive expense total in fen.}
+              name:
+                type: string
+              amountMinor:
+                "$ref": "#/components/schemas/Minor"
+                description: Positive expense total in fen.
         transactions:
           type: array
           maxItems: 50
-          items: {$ref: '#/components/schemas/Transaction'}
+          items:
+            "$ref": "#/components/schemas/Transaction"
     ImportPreview:
       type: object
-      required: [id, filename, ledgerVersion, rows, newCount, duplicateCount, similarCount, errors, alreadyCommitted]
+      required:
+      - id
+      - filename
+      - ledgerVersion
+      - rows
+      - newCount
+      - duplicateCount
+      - similarCount
+      - errors
+      - alreadyCommitted
       properties:
-        id: {type: string, description: Stable batch UUID; empty on parse failure.}
-        filename: {type: string}
-        ledgerVersion: {type: integer, format: int64, minimum: 0}
-        newCount: {type: integer, minimum: 0, description: Includes similar records that require explicit confirmation.}
-        duplicateCount: {type: integer, minimum: 0}
-        similarCount: {type: integer, minimum: 0}
-        errors: {type: array, items: {type: string}}
-        alreadyCommitted: {type: boolean}
+        id:
+          type: string
+          description: Stable batch UUID; empty on parse failure.
+        filename:
+          type: string
+        ledgerVersion:
+          type: integer
+          format: int64
+          minimum: 0
+        newCount:
+          type: integer
+          minimum: 0
+          description: Includes similar records that require explicit confirmation.
+        duplicateCount:
+          type: integer
+          minimum: 0
+        similarCount:
+          type: integer
+          minimum: 0
+        errors:
+          type: array
+          items:
+            type: string
+        alreadyCommitted:
+          type: boolean
         rows:
           type: array
           maxItems: 1000
           items:
             type: object
-            required: [line, record, status, message]
+            required:
+            - line
+            - record
+            - status
+            - message
             properties:
-              line: {type: integer, minimum: 2, description: Physical CSV line where the record begins.}
-              record: {$ref: '#/components/schemas/Transaction'}
-              status: {type: string, enum: [new, duplicate, similar, conflict]}
-              message: {type: string}
+              line:
+                type: integer
+                minimum: 2
+                description: Physical CSV line where the record begins.
+              record:
+                "$ref": "#/components/schemas/Transaction"
+              status:
+                type: string
+                enum:
+                - new
+                - duplicate
+                - similar
+                - conflict
+              message:
+                type: string
+    AuthUser:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum:
+          - google
+          - github
+        subject:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+        displayName:
+          type: string
+        allowed:
+          type: boolean
+        role:
+          type: string
+          enum:
+          - ''
+          - member
+          - superadmin
+      required:
+      - provider
+      - subject
+      - username
+      - email
+      - displayName
+      - allowed
+      - role
+    AuthState:
+      type: object
+      properties:
+        user:
+          oneOf:
+          - "$ref": "#/components/schemas/AuthUser"
+          - type: 'null'
+        providers:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                enum:
+                - google
+                - github
+              enabled:
+                type: boolean
+            required:
+            - id
+            - enabled
+        csrfToken:
+          type: string
+          description: Proof for cookie-authenticated writes; empty when no valid
+            session.
+      required:
+      - user
+      - providers
+      - csrfToken
+    AccessSelector:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum:
+          - google
+          - github
+        kind:
+          type: string
+          enum:
+          - subject
+          - username
+          - email
+        value:
+          type: string
+        note:
+          type: string
+          maxLength: 200
+      required:
+      - provider
+      - kind
+      - value
+      additionalProperties: false
+      description: GitHub supports numeric subject or username (resolved server-side
+        at add time). Google supports subject or a trusted email invitation bound
+        once on verified login. Role cannot be supplied.
+    AccessEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        kind:
+          type: string
+        value:
+          type: string
+        subject:
+          type: string
+          description: Empty while a Google email invitation awaits its first verified
+            login.
+        note:
+          type: string
+        role:
+          type: string
+          enum:
+          - member
+          - superadmin
+        enabled:
+          type: boolean
+        protected:
+          type: boolean
+        version:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - provider
+      - kind
+      - value
+      - subject
+      - note
+      - role
+      - enabled
+      - protected
+      - version
+      - createdAt
+    AccessAudit:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        actor:
+          type: string
+        action:
+          type: string
+          enum:
+          - add
+          - bind
+          - enable
+          - disable
+        entryId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - actor
+      - action
+      - entryId
+      - createdAt
