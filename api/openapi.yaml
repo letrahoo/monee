@@ -545,7 +545,9 @@ paths:
       responses:
         '200':
           description: Fixed login outcome page containing no authorization code or
-            session token.
+            session token. Desktop success offers a fixed monee://auth/complete
+            wake link. The desktop requests foreground after proof-bound session
+            redemption; the link only activates its window and never grants access.
           content:
             text/html:
               schema:

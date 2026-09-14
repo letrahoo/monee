@@ -17,6 +17,7 @@ expect suspend fun chooseCSV(): PickedCSV?
 internal expect val loginClient: String
 internal expect fun loginProof(): LoginProof
 internal expect suspend fun openLoginURL(url:String)
+internal expect suspend fun returnToApplication()
 internal expect fun isPlatformNetworkFailure(cause: Throwable): Boolean
 
 class LedgerApi {
@@ -75,7 +76,12 @@ class LedgerApi {
                 delay(2000)
                 val result=apiJson.decodeFromString<LoginResult>(request("auth/native/poll",HttpMethod.Post,apiJson.encodeToString(LoginPoll(flow.id,proof.verifier))))
                 when(result.status) {
-                    "complete" -> {if(result.token.isBlank())throw LedgerException("登录未完成");accessToken=result.token;return@withTimeout}
+                    "complete" -> {
+                        if(result.token.isBlank())throw LedgerException("登录未完成")
+                        accessToken=result.token
+                        returnToApplication()
+                        return@withTimeout
+                    }
                     "failed" -> throw LedgerException("登录已取消或验证失败，请重试")
                 }
             }

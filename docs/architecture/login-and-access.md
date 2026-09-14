@@ -59,6 +59,10 @@ Web 使用 HttpOnly、SameSite=Lax 的会话 cookie，按服务 origin 区分 co
 
 Mac 通过系统浏览器完成同一提供方授权。客户端先生成随机 proof，后端保存其 SHA-256 challenge；浏览器完成后，只有持有原 proof 的客户端能一次性领取本地会话。授权不会把会话 token 放入回调 URL或共享发现文件。Mac 会话只保存在进程内，退出 App 后需重新登录。
 
+Mac 领取会话后自动恢复最小化窗口并请求切回前台，然后检查白名单权限。系统若限制窗口切换，可点击完成页的“返回 Monee”。打包的 .app 注册固定链接 `monee://auth/complete`，处理器只负责显示窗口，不接受查询参数、片段或其他目标，也不读取任何凭据或改变登录身份。Google / GitHub 控制台仍登记 Go 服务的 HTTP 回调；不把该应用链接用作提供方回调。
+
+浏览器可能询问是否打开 Monee；直接用 Gradle 运行而未启动打包的 .app 时，自定义协议入口可能不可用。若授权期间完全退出 App，原 proof 已丢失，点击返回只能重新打开客户端，需要再次登录。完成页不根据外部 `redirectTo` 跳转，也不签发会话。
+
 本地会话有效期 12 小时，数据库只保存 token 哈希；退出立即撤销。每个数据请求都重新读取白名单状态，不把“已登录”直接当作“有数据权限”。
 
 Host / Origin / Fetch Metadata 防护继续生效。仅 OAuth 回调和明确的顶层页面导航允许跨站 GET；跨站数据请求与 JSON 写请求不被放行。鉴权覆盖 dashboard、template、手动写入、预览和导入确认，不只隐藏页面按钮。
@@ -89,9 +93,11 @@ Host / Origin / Fetch Metadata 防护继续生效。仅 OAuth 回调和明确的
 
 ## 验证范围
 
-Go 回归测试覆盖：未登录/未授权的全部账本入口、普通成员越权、客户端伪造角色、稳定 ID 和提供方隔离、邮箱一次性绑定、即时停用、受保护超管、并发重复添加、会话过期/退出/重启保存、CSRF、state/cookie/提供方绑定、回调重放、Mac proof 和一次性领取、取消/超时，以及实际 RSA 签名的 Google token 校验和 GitHub 身份 API 解析。
+Go 回归测试覆盖：未登录/未授权的全部账本入口、普通成员越权、客户端伪造角色、稳定 ID 和提供方隔离、邮箱一次性绑定、即时停用、受保护超管、并发重复添加、会话过期/退出/重启保存、CSRF、state/cookie/提供方绑定、回调重放、Mac proof 和一次性领取、取消/超时，以及实际 RSA 签名的 Google token 校验和 GitHub 身份 API 解析。完成页测试检查固定返回链接、忽略外部跳转参数、不反射 token、不签发会话和禁止缓存；JVM 测试检查只接受无凭据的固定应用链接。
 
 KMP JVM 测试、Web 生产构建与 Mac .app 构建通过。隔离浏览器使用合成提供方和合成账本，验证未授权提示、Google 超管邮箱绑定、添加成员、成员访问和停用拦截，以及服务断开时隐藏账本和显示连接错误、服务恢复后自动重新验证权限。GitHub 真实授权：Web 已由用户确认登录通过；Mac 完全退出旧进程并重新打开新版后，已实测完成系统浏览器授权、自动领取客户端会话、识别超管身份、读取本机账本并进入白名单管理页。未向正式账本写入测试数据，也未改变成员权限。Google 仍需 Web OAuth 客户端配置及真实登录验收。
+
+Mac 自动返回已通过真实 GitHub 授权验证，由用户确认窗口自动切回前台。构建产物的 URL scheme 注册与完成页链接已检查；备用按钮的自定义协议跳转受内置浏览器测试环境限制，尚未完成手动唤起实测，最小化窗口恢复也尚未单独实测。
 
 ## 官方依据
 
@@ -100,3 +106,5 @@ KMP JVM 测试、Web 生产构建与 Mac .app 构建通过。隔离浏览器使�
 - [GitHub OAuth App 授权](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps)：PKCE、回调与登录后身份查询。
 
 - [GitHub App 用户授权](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app)：Client ID、PKCE 与用户身份查询；GitHub App 不使用 OAuth scopes。
+- [Compose 原生分发](https://kotlinlang.org/docs/multiplatform/compose-native-distribution.html)：macOS Info.plist 和深层链接注册。
+- [Java Desktop](https://docs.oracle.com/en/java/javase/24/docs/api/java.desktop/java/awt/Desktop.html)：应用 URI 处理器与前台窗口请求。

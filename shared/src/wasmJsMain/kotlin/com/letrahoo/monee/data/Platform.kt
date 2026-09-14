@@ -44,3 +44,4 @@ internal actual val loginClient:String = "web"
 internal actual fun loginProof() = LoginProof("", "")
 private fun navigateLogin(url:String):Unit = js("window.location.assign(url)")
 internal actual suspend fun openLoginURL(url:String) {navigateLogin(url)}
+internal actual suspend fun returnToApplication() { }

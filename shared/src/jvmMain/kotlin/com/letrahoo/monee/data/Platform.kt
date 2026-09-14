@@ -54,3 +54,4 @@ internal actual fun loginProof():LoginProof {
 internal actual suspend fun openLoginURL(url:String) = withContext(Dispatchers.IO) {
     java.awt.Desktop.getDesktop().browse(java.net.URI(url))
 }
+internal actual suspend fun returnToApplication() { DesktopReturn.activate() }

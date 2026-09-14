@@ -201,3 +201,28 @@ func TestCancelledExpiredAndUnconfiguredLogin(t *testing.T) {
 		t.Fatal("expired flow accepted")
 	}
 }
+
+func TestDesktopResultOnlyOffersFixedWakeLink(t *testing.T) {
+	_, h := serviceForTest(t)
+	for _, status := range []string{"desktop", "cancelled", "failed", "invalid", ""} {
+		t.Run(status, func(t *testing.T) {
+			q := url.Values{"status": {status}, "redirectTo": {"https://attacker.invalid"}, "token": {"untrusted-secret"}}
+			w := call(h, "GET", "/auth/result?"+q.Encode(), nil, nil, nil)
+			body := w.Body.String()
+			if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
+				t.Fatal("result page must remain uncached")
+			}
+			if strings.Contains(body, `href="monee://auth/complete"`) != (status == "desktop") {
+				t.Fatal("wrong desktop return link")
+			}
+			for _, forbidden := range []string{"attacker.invalid", "untrusted-secret", "#ZgotmplZ", "<script"} {
+				if strings.Contains(body, forbidden) {
+					t.Fatalf("unsafe result content: %s", forbidden)
+				}
+			}
+			if len(w.Result().Cookies()) != 0 {
+				t.Fatal("result page must not issue a session")
+			}
+		})
+	}
+}

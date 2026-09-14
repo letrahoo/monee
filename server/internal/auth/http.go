@@ -421,14 +421,14 @@ func (s *Service) redirectResult(w http.ResponseWriter, r *http.Request, status 
 	http.Redirect(w, r, "/auth/result?status="+status, http.StatusSeeOther)
 }
 
-var resultPage = template.Must(template.New("result").Parse(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Monee 登录</title><style>body{font-family:system-ui;background:#f6f7f2;color:#20372f;margin:0;padding:10vh 24px}main{max-width:520px;margin:auto;padding:32px;background:white;border-radius:20px}h1{color:#165b4a}a{color:#165b4a;display:inline-block;margin-top:16px}</style><main><h1>Monee</h1><h2>{{.Title}}</h2><p>{{.Message}}</p><a href="/">返回 Web 应用</a></main></html>`))
+var resultPage = template.Must(template.New("result").Parse(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Monee 登录</title><style>body{font-family:system-ui;background:#f6f7f2;color:#20372f;margin:0;padding:10vh 24px}main{max-width:520px;margin:auto;padding:32px;background:white;border-radius:20px}h1{color:#165b4a}a{color:#165b4a;display:inline-block;margin-top:16px}</style><main><h1>Monee</h1><h2>{{.Title}}</h2><p>{{.Message}}</p>{{if .Desktop}}<a href="monee://auth/complete">返回 Monee</a><p>如果浏览器询问是否打开应用，请选择打开 Monee。</p><p>如果已退出客户端，请重新打开应用并登录。</p>{{end}}<a href="/">返回 Web 应用</a></main></html>`))
 
 func (s *Service) result(w http.ResponseWriter, r *http.Request) {
 	title, message := "登录未完成", "登录请求已失效，请返回应用重新发起。"
 	switch r.URL.Query().Get("status") {
 	case "desktop":
 		title = "已完成账号验证"
-		message = "请回到 Monee Mac 客户端，应用会自动检查数据访问权限。"
+		message = "正在返回 Monee。客户端收到授权结果后会自动打开窗口并检查数据访问权限；若未自动返回，请点击下方按钮。"
 	case "cancelled":
 		title = "已取消登录"
 		message = "你可以返回应用，重新选择登录账号。"
@@ -437,6 +437,6 @@ func (s *Service) result(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	resultPage.Execute(w, map[string]string{"Title": title, "Message": message})
+	resultPage.Execute(w, map[string]any{"Title": title, "Message": message, "Desktop": r.URL.Query().Get("status") == "desktop"})
 }
 func (s *Service) sessionCookie() string { return "monee_session_" + digest(s.baseURL)[:12] }

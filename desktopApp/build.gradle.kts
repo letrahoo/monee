@@ -34,6 +34,17 @@ compose.desktop {
             macOS {
                 bundleID = "com.letrahoo.monee"
                 iconFile.set(generateMacIcon.map { macIcon.get() })
+                infoPlist {
+                    extraKeysRawXml = """
+                        <key>CFBundleURLTypes</key>
+                        <array><dict>
+                            <key>CFBundleURLName</key>
+                            <string>com.letrahoo.monee.return</string>
+                            <key>CFBundleURLSchemes</key>
+                            <array><string>monee</string></array>
+                        </dict></array>
+                    """.trimIndent()
+                }
             }
         }
     }
