@@ -49,7 +49,11 @@ jobs:
         run: ./gradlew --no-daemon :shared:jvmTest :webApp:wasmJsBrowserDistribution
       - name: Build Mac app
         if: runner.os == 'macOS'
-        run: ./gradlew --no-daemon :desktopApp:createDistributable :desktopApp:packageDmg
+        run: |
+          if ! ./gradlew --no-daemon :desktopApp:createDistributable :desktopApp:packageDmg; then
+            find desktopApp/build/compose/logs -type f -name '*.txt' -exec cat {} +
+            exit 1
+          fi
       - name: Package application and local service
         shell: bash
         env:
