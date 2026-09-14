@@ -28,5 +28,6 @@
 
 - README、产品介绍和界面展示优先引用这一份品牌资源，保持等比例缩放。
 - 当前资源是带背景的完整栅格图，不视为透明底标志或 SVG 源文件。
-- 后续生成 Web favicon、macOS、iOS 和 Android 图标时，分别适配各平台的尺寸和遮罩要求，派生文件单独存放，保留原图。
+- macOS 应用图标已接入打包配置：构建时由 `scripts/generate-macos-icon.sh` 使用系统 `sips` / `iconutil`，等比例生成 16–1024 px 图标并封装为 ICNS，保存在 `desktopApp/build/generated/appIcon/Monee.icns`；该文件也用于 Gradle 桌面运行的 Dock 图标。原图不变，派生文件不提交。
+- Web favicon、iOS 和 Android 图标后续分别适配各平台尺寸和遮罩要求，派生文件单独存放，保留原图。
 - 当前未确定独立字体、精确品牌色值、深色版或单色版规范；后续 UI 设计时补充。
