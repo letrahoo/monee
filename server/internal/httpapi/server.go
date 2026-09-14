@@ -38,6 +38,9 @@ func fail(w http.ResponseWriter, err error) {
 		if code == "conflict" {
 			status = 409
 		}
+		if code == "ledger_denied" || code == "ledger_readonly" || code == "access_denied" {
+			status = 403
+		}
 		if code == "not_found" {
 			status = 404
 		}
@@ -68,13 +71,18 @@ func decode(w http.ResponseWriter, r *http.Request, target any) bool {
 
 func (a API) Handler() http.Handler {
 	mux := http.NewServeMux()
+	a.registerLedgers(mux)
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"status": "ok", "apiVersion": 1, "schemaVersion": 1})
+		writeJSON(w, 200, map[string]any{"status": "ok", "apiVersion": 1, "schemaVersion": 2})
 	})
 	if a.Auth != nil {
 		a.Auth.Register(mux)
 	}
 	mux.HandleFunc("GET /api/v1/dashboard", func(w http.ResponseWriter, r *http.Request) {
+		store, ok := a.ledgerForRequest(w, r)
+		if !ok {
+			return
+		}
 		page := 1
 		var err error
 		if value := r.URL.Query().Get("page"); value != "" {
@@ -84,7 +92,7 @@ func (a API) Handler() http.Handler {
 			fail(w, &ledger.Problem{Code: "invalid", Message: "分页参数无效"})
 			return
 		}
-		result, err := a.Store.Dashboard(r.URL.Query().Get("month"), r.URL.Query().Get("q"), page)
+		result, err := store.Dashboard(r.URL.Query().Get("month"), r.URL.Query().Get("q"), page)
 		if err != nil {
 			fail(w, err)
 			return
@@ -92,11 +100,15 @@ func (a API) Handler() http.Handler {
 		writeJSON(w, 200, result)
 	})
 	mux.HandleFunc("POST /api/v1/transactions", func(w http.ResponseWriter, r *http.Request) {
+		store, ok := a.ledgerForRequest(w, r)
+		if !ok {
+			return
+		}
 		var input ledger.Input
 		if !decode(w, r, &input) {
 			return
 		}
-		result, err := a.Store.Create(input, r.Header.Get("Idempotency-Key"))
+		result, err := store.Create(input, r.Header.Get("Idempotency-Key"))
 		if err != nil {
 			fail(w, err)
 			return
@@ -104,6 +116,10 @@ func (a API) Handler() http.Handler {
 		writeJSON(w, 201, result)
 	})
 	mux.HandleFunc("POST /api/v1/imports/preview", func(w http.ResponseWriter, r *http.Request) {
+		store, ok := a.ledgerForRequest(w, r)
+		if !ok {
+			return
+		}
 		var input struct {
 			Filename string `json:"filename"`
 			CSV      string `json:"csv"`
@@ -111,7 +127,7 @@ func (a API) Handler() http.Handler {
 		if !decode(w, r, &input) {
 			return
 		}
-		result, err := a.Store.Preview(input.Filename, input.CSV)
+		result, err := store.Preview(input.Filename, input.CSV)
 		if err != nil {
 			fail(w, err)
 			return
@@ -119,6 +135,10 @@ func (a API) Handler() http.Handler {
 		writeJSON(w, 200, result)
 	})
 	mux.HandleFunc("POST /api/v1/imports/{id}/commit", func(w http.ResponseWriter, r *http.Request) {
+		store, ok := a.ledgerForRequest(w, r)
+		if !ok {
+			return
+		}
 		var input struct {
 			LedgerVersion  int64 `json:"ledgerVersion"`
 			ConfirmSimilar bool  `json:"confirmSimilar"`
@@ -126,7 +146,7 @@ func (a API) Handler() http.Handler {
 		if !decode(w, r, &input) {
 			return
 		}
-		result, err := a.Store.Commit(r.PathValue("id"), input.LedgerVersion, input.ConfirmSimilar)
+		result, err := store.Commit(r.PathValue("id"), input.LedgerVersion, input.ConfirmSimilar)
 		if err != nil {
 			fail(w, err)
 			return
@@ -176,7 +196,7 @@ func (a API) Handler() http.Handler {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
 		origin := r.Header.Get("Origin")
 		site := r.Header.Get("Sec-Fetch-Site")
-		callback := r.Method == "GET" && (r.URL.Path == "/auth/callback/google" || r.URL.Path == "/auth/callback/github")
+		callback := r.Method == "GET" && a.Auth != nil && a.Auth.IsCallback(r.URL.Path)
 		navigation := r.Method == "GET" && r.Header.Get("Sec-Fetch-Mode") == "navigate" && (r.URL.Path == "/" || r.URL.Path == "/auth/begin" || r.URL.Path == "/auth/result")
 		if r.Host != a.Host || (!callback && origin != "" && origin != "http://"+a.Host) || ((site == "cross-site" || site == "same-site") && !callback && !navigation) {
 			writeJSON(w, 403, map[string]string{"code": "origin", "message": "拒绝非本地同源访问"})

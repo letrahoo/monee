@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"html/template"
 	"io"
 	"mime"
@@ -18,6 +20,7 @@ type flow struct {
 	ID, Ticket, State, Binding, Verifier, Nonce, Provider, Client, Challenge, Status string
 	Identity                                                                         Identity
 	Expires                                                                          time.Time
+	LinkUser, LinkSession                                                            string
 }
 type Service struct {
 	store         *Store
@@ -86,6 +89,10 @@ func (s *Service) user(w http.ResponseWriter, r *http.Request, required bool) (*
 	}
 	return u, true
 }
+func (s *Service) CurrentUser(w http.ResponseWriter, r *http.Request) (*User, bool) {
+	return s.user(w, r, true)
+}
+
 func (s *Service) AuthorizeData(w http.ResponseWriter, r *http.Request) bool {
 	u, ok := s.user(w, r, true)
 	if !ok {
@@ -110,6 +117,7 @@ func (s *Service) admin(w http.ResponseWriter, r *http.Request) (*User, bool) {
 }
 func (s *Service) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/auth/me", s.me)
+	s.registerAccount(mux)
 	mux.HandleFunc("POST /api/v1/auth/start", s.start)
 	mux.HandleFunc("POST /api/v1/auth/native/poll", s.poll)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.logout)
@@ -153,6 +161,7 @@ func (s *Service) start(w http.ResponseWriter, r *http.Request) {
 		Provider  string `json:"provider"`
 		Client    string `json:"client"`
 		Challenge string `json:"challenge"`
+		Intent    string `json:"intent"`
 	}
 	if !readJSON(w, r, &input) {
 		return
@@ -165,6 +174,23 @@ func (s *Service) start(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, 422, "invalid", "登录客户端信息无效")
 		return
 	}
+	var linkUser, linkSession string
+	if input.Intent != "" && input.Intent != "login" && input.Intent != "link" {
+		errorResponse(w, 422, "invalid", "无效操作")
+		return
+	}
+	if input.Intent == "link" {
+		u, ok := s.user(w, r, true)
+		if !ok {
+			return
+		}
+		if !u.Allowed {
+			errorResponse(w, 403, "access_denied", "账号尚未获准")
+			return
+		}
+		linkUser = u.ID
+		linkSession, _ = s.requestToken(r)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cleanupLocked()
@@ -173,6 +199,8 @@ func (s *Service) start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f := &flow{ID: randomToken(), Ticket: randomToken(), State: randomToken(), Verifier: randomToken(), Nonce: randomToken(), Provider: input.Provider, Client: input.Client, Challenge: input.Challenge, Status: "pending", Expires: time.Now().Add(10 * time.Minute)}
+	f.LinkUser = linkUser
+	f.LinkSession = linkSession
 	s.flows[f.ID] = f
 	jsonResponse(w, 200, map[string]any{"id": f.ID, "url": s.baseURL + "/auth/begin?ticket=" + f.Ticket, "expiresIn": 600})
 }
@@ -252,9 +280,47 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 		s.redirectResult(w, r, "failed")
 		return
 	}
+	_, priorErr := s.store.AccountID(identity)
+	if priorErr != nil && !errors.Is(priorErr, sql.ErrNoRows) {
+		s.failFlow(f.ID)
+		s.redirectResult(w, r, "failed")
+		return
+	}
 	if err = s.store.RememberIdentity(identity); err != nil {
 		s.failFlow(f.ID)
 		s.redirectResult(w, r, "failed")
+		return
+	}
+	if f.LinkUser != "" {
+		current, e := s.store.Session(f.LinkSession)
+		if e != nil || current == nil || !current.Allowed || current.ID != f.LinkUser {
+			s.failFlow(f.ID)
+			s.redirectResult(w, r, "failed")
+			return
+		}
+		target, e := s.store.AccountID(identity)
+		if e != nil {
+			s.failFlow(f.ID)
+			s.redirectResult(w, r, "failed")
+			return
+		}
+		status := "linked"
+		if target != f.LinkUser && priorErr == nil {
+			status = "merge_required"
+		} else if target != f.LinkUser {
+			if e = s.store.LinkVerified(f.LinkUser, identity, true); e != nil {
+				s.failFlow(f.ID)
+				s.redirectResult(w, r, "failed")
+				return
+			}
+		}
+		s.mu.Lock()
+		if current, ok := s.flows[f.ID]; ok {
+			current.Status = status
+			current.Identity = identity
+		}
+		s.mu.Unlock()
+		s.redirectResult(w, r, "linked")
 		return
 	}
 	if f.Client == "desktop" {
@@ -309,6 +375,11 @@ func (s *Service) poll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch f.Status {
+	case "linked", "merge_required":
+		status := f.Status
+		s.mu.Unlock()
+		jsonResponse(w, 200, map[string]string{"status": status, "token": ""})
+		return
 	case "complete":
 		identity := f.Identity
 		delete(s.flows, f.ID)
@@ -426,6 +497,9 @@ var resultPage = template.Must(template.New("result").Parse(`<!doctype html><htm
 func (s *Service) result(w http.ResponseWriter, r *http.Request) {
 	title, message := "登录未完成", "登录请求已失效，请返回应用重新发起。"
 	switch r.URL.Query().Get("status") {
+	case "linked":
+		title = "身份验证已完成"
+		message = "请返回应用查看绑定结果；已注册账号需要确认合并。"
 	case "desktop":
 		title = "已完成账号验证"
 		message = "正在返回 Monee。未自动返回时，请点击下方按钮。"
@@ -440,3 +514,13 @@ func (s *Service) result(w http.ResponseWriter, r *http.Request) {
 	resultPage.Execute(w, map[string]any{"Title": title, "Message": message, "Desktop": r.URL.Query().Get("status") == "desktop"})
 }
 func (s *Service) sessionCookie() string { return "monee_session_" + digest(s.baseURL)[:12] }
+
+// Callback exceptions are restricted to actually configured adapters.
+func (s *Service) IsCallback(path string) bool {
+	provider, ok := strings.CutPrefix(path, "/auth/callback/")
+	if !ok {
+		return false
+	}
+	_, enabled := s.providers[provider]
+	return enabled
+}

@@ -82,16 +82,16 @@ fun App() {
     MaterialTheme(colors=lightColors(primary=Pine,background=Color(0xFFF6F7F2),onBackground=Ink,onSurface=Ink),
         typography=Typography(defaultFontFamily=FontFamily(Font(Res.font.noto_sans_sc)))) {
         if(user?.allowed==true&&connectionError==null) {
-            key(user.provider,user.subject) {
+            key(user.id) {
                 if(managing&&user.role=="superadmin") AccessManagement(api,user,busy,actionError,onBack={managing=false},onLogout=::logout,onAccessLost=::accessLost)
-                else LedgerScreen(api,user,busy,actionError,onLogout=::logout,onManage={managing=true},onAccessLost=::accessLost)
+                else WorkspaceScreen(api,user,busy,actionError,onLogout=::logout,onManage={managing=true},onAccessLost=::accessLost)
             }
         } else {
             Column(Modifier.fillMaxSize().background(MaterialTheme.colors.background).verticalScroll(rememberScrollState()).padding(24.dp),
                 horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(20.dp)) {
                 Spacer(Modifier.height(24.dp))
                 Image(painterResource(Res.drawable.logo),"Monee Logo",Modifier.size(80.dp))
-                Text("Monee",fontSize=32.sp,fontWeight=FontWeight.Bold,color=Pine)
+                Text("monee",fontSize=32.sp,fontWeight=FontWeight.Bold,color=Pine)
                 Text("Know Your Money. Own Your Future.",color=Muted,fontSize=13.sp)
                 Surface(shape=RoundedCornerShape(20.dp),modifier=Modifier.widthIn(max=540.dp).fillMaxWidth()) {
                     Column(Modifier.padding(26.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
@@ -121,19 +121,20 @@ fun App() {
                     }
                 }
                 TextButton(onClick={showPrivacy=!showPrivacy}){Text("数据与隐私")}
-                if(showPrivacy) Text("账本保存在这台设备，尚未云端备份。获准的账号可查看和修改账单。",fontSize=12.sp,color=Muted)
+                if(showPrivacy) Text("账本保存在这台设备，尚未云端同步。只有获授权的成员可以访问对应账本。",fontSize=12.sp,color=Muted)
             }
         }
     }
 }
 
-internal fun String.displayProvider()=if(this=="google")"Google"else"GitHub"
+internal fun String.displayProvider()=when(this){"google"->"Google";"github"->"GitHub";"feishu"->"飞书";else->this}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AccessManagement(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError:String?,onBack:()->Unit,onLogout:()->Unit,onAccessLost:()->Unit){
     val scope=rememberCoroutineScope()
     var entries by remember {mutableStateOf<List<AccessEntry>>(emptyList())}
+    var registered by remember {mutableStateOf<List<RegisteredUser>>(emptyList())}
     var history by remember {mutableStateOf<List<AccessAudit>>(emptyList())}
     var input by remember {mutableStateOf(AccessSelector())}
     var error by remember {mutableStateOf<String?>(null)}
@@ -142,7 +143,7 @@ private fun AccessManagement(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
     var loaded by remember {mutableStateOf(false)}
     var showHistory by remember {mutableStateOf(false)}
     var expandedEntry by remember {mutableStateOf<String?>(null)}
-    suspend fun reload(){entries=api.accessList().entries;history=api.accessHistory().events;loaded=true}
+    suspend fun reload(){registered=api.registeredUsers().users;entries=api.accessList().entries;history=api.accessHistory().events;loaded=true}
     fun action(block:suspend ()->Unit){scope.launch{
         busy=true;error=null;notice=null
         try{block()}
@@ -154,7 +155,8 @@ private fun AccessManagement(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
         busy=true
         try{reload()}catch(e:CancellationException){throw e}catch(e:Exception){if(e is LedgerException&&e.accessLost)onAccessLost()else error=e.message}finally{busy=false}
     }
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colors.background).verticalScroll(rememberScrollState()).padding(24.dp),verticalArrangement=Arrangement.spacedBy(18.dp)){
+    SettingsPage{
+        BrandHeader()
         FlowRow(horizontalArrangement=Arrangement.spacedBy(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             Text("访问白名单",fontSize=28.sp,fontWeight=FontWeight.Bold,color=Pine)
             TextButton(onClick=onBack,enabled=!busy&&!authBusy){Text("返回账本")}
@@ -162,7 +164,7 @@ private fun AccessManagement(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
             OutlinedButton(onClick=onLogout,enabled=!busy&&!authBusy){Text(if(authBusy)"正在退出…"else"退出登录")}
         }
         Text(user.label,color=Muted)
-        Text("成员可查看和修改账单。停用后无法访问。",color=Muted,fontSize=13.sp)
+        Text("获准后可以创建账本；访问他人账本还需单独授权。停用统一账号会影响其全部登录渠道。",color=Muted,fontSize=13.sp)
         if(busy||authBusy)LinearProgressIndicator(Modifier.fillMaxWidth())
         authError?.let{Text(it,color=MaterialTheme.colors.error)}
         error?.let{Text(it,color=MaterialTheme.colors.error)}
@@ -185,7 +187,15 @@ private fun AccessManagement(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
                 Button(onClick={action{api.addAccess(input);input=input.copy(value="",note="");reload();notice="账号已添加到白名单。"}},enabled=!busy&&!authBusy&&input.value.isNotBlank()){Text("添加到白名单")}
             }
         }
-        Text("已配置账号 · ${entries.size}",fontSize=20.sp,fontWeight=FontWeight.Bold)
+        Text("已注册用户 · ${registered.size}",fontSize=20.sp,fontWeight=FontWeight.Bold)
+        registered.forEach{person->
+            Column(verticalArrangement=Arrangement.spacedBy(6.dp)){
+                Text("${person.name} · ${if(person.enabled)"已获准"else"待开通/已停用"}")
+                androidx.compose.foundation.text.selection.SelectionContainer{Text(person.id,fontSize=12.sp,color=Muted)}
+                if(person.role!="superadmin")OutlinedButton(onClick={action{api.setRegisteredUser(person);reload()}},enabled=!busy){Text(if(person.enabled)"停用账号"else"开通账号")}
+            }
+        }
+        Text("预设准入身份 · ${entries.size}",fontSize=20.sp,fontWeight=FontWeight.Bold)
         if(loaded&&entries.isEmpty())Text("尚无白名单账号。",color=Muted)
         entries.forEach{entry->
             Surface(shape=RoundedCornerShape(14.dp)){
@@ -198,7 +208,7 @@ private fun AccessManagement(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
                         if(entry.subject.isNotBlank())Text("账号 ID：${entry.subject}",fontSize=12.sp,color=Muted)
                         if(entry.note.isNotBlank())Text(entry.note,fontSize=13.sp)
                     }
-                    if(!entry.protected)OutlinedButton(onClick={action{api.setAccess(entry);reload();notice=if(entry.enabled)"账号已停用。"else"账号已启用。"}},enabled=!busy&&!authBusy){Text(if(entry.enabled)"停用访问"else"启用访问")}
+                    if(!entry.protected&&entry.subject.isBlank())OutlinedButton(onClick={action{api.setAccess(entry);reload();notice=if(entry.enabled)"账号已停用。"else"账号已启用。"}},enabled=!busy&&!authBusy){Text(if(entry.enabled)"停用访问"else"启用访问")}
                 }
             }
         }
@@ -216,4 +226,4 @@ private fun AccessManagement(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
     }
 }
 private fun String.selectorLabel()=when(this){"username"->"GitHub 用户名";"email"->"Google 邮箱";else->"账号 ID"}
-private fun String.auditLabel()=when(this){"add"->"添加";"bind"->"绑定身份";"enable"->"启用";"disable"->"停用";else->this}
+private fun String.auditLabel()=when(this){"add"->"添加";"bind"->"绑定身份";"enable"->"启用";"disable"->"停用";"set_account_access"->"调整账号准入";"merge_account"->"合并账号";"unlink_identity"->"解绑身份";else->this}

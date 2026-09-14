@@ -93,6 +93,9 @@ func parseCSV(text string) ([]PreviewRow, []string) {
 func (s *Store) Preview(filename, text string) (Preview, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.authorize(s.db, true); err != nil {
+		return Preview{}, err
+	}
 	p := Preview{Filename: filepath.Base(filename), Rows: []PreviewRow{}, Errors: []string{}}
 	if p.Filename == "" || p.Filename == "." {
 		p.Filename = "import.csv"
@@ -177,6 +180,9 @@ func (s *Store) Preview(filename, text string) (Preview, error) {
 	}
 	_, err = s.db.Exec(`INSERT INTO imports(id,ledger_id,filename,content_hash,raw_csv,parser_version,ledger_version,preview_json,created_at) VALUES(?,?,?,?,?,1,?,?,?)
  ON CONFLICT(ledger_id,content_hash) DO UPDATE SET ledger_version=excluded.ledger_version,preview_json=excluded.preview_json`, p.ID, s.ledgerID, p.Filename, contentHash, text, p.LedgerVersion, encode(p), now())
+	if err == nil && s.actorID != "" {
+		_, err = s.db.Exec("UPDATE imports SET created_by=COALESCE(created_by,?) WHERE id=? AND ledger_id=?", s.actorID, p.ID, s.ledgerID)
+	}
 	return p, err
 }
 
@@ -189,6 +195,9 @@ func (s *Store) Commit(id string, version int64, confirmSimilar bool) (CommitRes
 		return result, err
 	}
 	defer tx.Rollback()
+	if err = s.authorize(tx, true); err != nil {
+		return result, err
+	}
 	var previewJSON string
 	var previousResult sql.NullString
 	err = tx.QueryRow("SELECT preview_json,result_json FROM imports WHERE id=? AND ledger_id=?", id, s.ledgerID).Scan(&previewJSON, &previousResult)

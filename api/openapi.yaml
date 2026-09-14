@@ -2,13 +2,12 @@
 openapi: 3.1.0
 info:
   title: Monee Local Ledger API
-  version: 1.1.0
-  description: Local Google/GitHub login with server-enforced allowlist. Members share
-    one ledger. Unauthenticated data requests return 401; authenticated identities
-    without access return 403. OAuth callbacks require state and browser binding.
-    All cookie-authenticated protected writes require X-Monee-CSRF. Only loopback
-    HTTP is supported. Money remains decimal strings; no provider tokens are exposed
-    to clients.
+  version: 1.2.0
+  description: Unified product users with explicitly linked Google/GitHub identities.
+    System admission is separate from ledger ownership/editor/viewer memberships.
+    All data access is enforced by Go. Feishu is reserved for a future provider adapter.
+    Local loopback HTTP only; cloud deployment is not yet supported. Cookie-authenticated
+    writes require X-Monee-CSRF. Application database schema version 2.
 servers:
 - url: http://127.0.0.1:4173
 security:
@@ -39,7 +38,7 @@ paths:
                     const: 1
                   schemaVersion:
                     type: integer
-                    const: 1
+                    const: 2
         default:
           "$ref": "#/components/responses/Error"
   "/api/v1/dashboard":
@@ -68,6 +67,14 @@ paths:
           minimum: 1
           maximum: 100000
           default: 1
+      - in: header
+        name: X-Monee-Ledger
+        required: false
+        description: Explicit target ledger ID. Clients always send this. Omission
+          is accepted only when the user belongs to exactly one ledger; otherwise
+          ledger_required. Membership is checked for each operation.
+        schema:
+          type: string
       responses:
         '200':
           description: Monthly aggregates and at most 50 transactions, sorted by date
@@ -96,7 +103,15 @@ paths:
         required: false
         description: Required when authenticating this write with a browser cookie;
           use the proof from auth/me. Not required for native Bearer sessions.
-        schema: &1
+        schema:
+          type: string
+      - in: header
+        name: X-Monee-Ledger
+        required: false
+        description: Explicit target ledger ID. Clients always send this. Omission
+          is accepted only when the user belongs to exactly one ledger; otherwise
+          ledger_required. Membership is checked for each operation.
+        schema:
           type: string
       requestBody:
         required: true
@@ -155,7 +170,16 @@ paths:
         required: false
         description: Required when authenticating this write with a browser cookie;
           use the proof from auth/me. Not required for native Bearer sessions.
-        schema: *1
+        schema:
+          type: string
+      - in: header
+        name: X-Monee-Ledger
+        required: false
+        description: Explicit target ledger ID. Clients always send this. Omission
+          is accepted only when the user belongs to exactly one ledger; otherwise
+          ledger_required. Membership is checked for each operation.
+        schema:
+          type: string
   "/api/v1/imports/{id}/commit":
     post:
       operationId: commitImport
@@ -175,7 +199,16 @@ paths:
         required: false
         description: Required when authenticating this write with a browser cookie;
           use the proof from auth/me. Not required for native Bearer sessions.
-        schema: *1
+        schema:
+          type: string
+      - in: header
+        name: X-Monee-Ledger
+        required: false
+        description: Explicit target ledger ID. Clients always send this. Omission
+          is accepted only when the user belongs to exactly one ledger; otherwise
+          ledger_required. Membership is checked for each operation.
+        schema:
+          type: string
       requestBody:
         required: true
         content:
@@ -297,13 +330,23 @@ paths:
                   type: string
                   description: 'Required for desktop: base64url SHA-256 of a random
                     32-byte base64url verifier. Empty for web.'
+                intent:
+                  type: string
+                  enum:
+                  - login
+                  - link
+                  default: login
+                  description: link requires an admitted initiating session (and cookie
+                    CSRF), and verifies an additional identity without switching the
+                    current account.
               required:
               - provider
               - client
               additionalProperties: false
       description: Creates a bounded, 10-minute login attempt. Returns 503 when this
         provider is not configured. Navigate the browser to the returned URL; no application
-        session is returned here.
+        session is returned here. Binding an already registered identity creates a
+        pending merge that must be explicitly confirmed by the initiating session.
   "/api/v1/auth/native/poll":
     post:
       operationId: nativeLoginResult
@@ -321,6 +364,8 @@ paths:
                     - pending
                     - complete
                     - failed
+                    - linked
+                    - merge_required
                   token:
                     type: string
                     description: Opaque application session only on the single successful
@@ -377,7 +422,8 @@ paths:
         required: false
         description: Required when authenticating this write with a browser cookie;
           use the proof from auth/me. Not required for native Bearer sessions.
-        schema: *1
+        schema:
+          type: string
   "/api/v1/admin/allowlist":
     get:
       operationId: listAllowlist
@@ -424,7 +470,8 @@ paths:
         required: false
         description: Required when authenticating this write with a browser cookie;
           use the proof from auth/me. Not required for native Bearer sessions.
-        schema: *1
+        schema:
+          type: string
   "/api/v1/admin/allowlist/{id}":
     patch:
       operationId: changeAllowlistAccess
@@ -451,7 +498,8 @@ paths:
         required: false
         description: Required when authenticating this write with a browser cookie;
           use the proof from auth/me. Not required for native Bearer sessions.
-        schema: *1
+        schema:
+          type: string
       requestBody:
         required: true
         content:
@@ -500,7 +548,7 @@ paths:
         schema:
           type: string
       responses:
-        '303': &2
+        '303':
           description: Browser redirect. Invalid, expired or cancelled attempts redirect
             to a fixed result page, never an arbitrary return URL.
           headers:
@@ -537,7 +585,13 @@ paths:
         schema:
           type: string
       responses:
-        '303': *2
+        '303':
+          description: Browser redirect. Invalid, expired or cancelled attempts redirect
+            to a fixed result page, never an arbitrary return URL.
+          headers:
+            Location:
+              schema:
+                type: string
   "/auth/result":
     get:
       operationId: loginResultPage
@@ -545,13 +599,487 @@ paths:
       responses:
         '200':
           description: Fixed login outcome page containing no authorization code or
-            session token. Desktop success offers a fixed monee://auth/complete
-            wake link. The desktop requests foreground after proof-bound session
-            redemption; the link only activates its window and never grants access.
+            session token. Desktop success offers a fixed monee://auth/complete wake
+            link. The desktop requests foreground after proof-bound session redemption;
+            the link only activates its window and never grants access.
           content:
             text/html:
               schema:
                 type: string
+  "/api/v1/ledgers":
+    get:
+      operationId: listLedgers
+      description: Only ledgers the admitted user belongs to. Platform superadmin
+        has no implicit ledger access.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ledgers:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/LedgerInfo"
+                required:
+                - ledgers
+                additionalProperties: false
+        default:
+          "$ref": "#/components/responses/Error"
+    post:
+      operationId: createLedger
+      description: Creates a CNY ledger and owner membership atomically.
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/LedgerInfo"
+        default:
+          "$ref": "#/components/responses/Error"
+      parameters:
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required for cookie-authenticated writes; obtain from auth/me.
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+              required:
+              - name
+              additionalProperties: false
+  "/api/v1/ledgers/{ledger}/members":
+    get:
+      operationId: ledgerMembers
+      description: Owner only.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  members:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/LedgerMember"
+                required:
+                - members
+                additionalProperties: false
+        default:
+          "$ref": "#/components/responses/Error"
+      parameters:
+      - in: path
+        name: ledger
+        required: true
+        schema:
+          type: string
+  "/api/v1/ledgers/{ledger}/invitations":
+    post:
+      operationId: inviteLedgerMember
+      description: Owner invites an admitted product user by UUID. Pending invitations
+        grant no access.
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                - ok
+                additionalProperties: false
+        default:
+          "$ref": "#/components/responses/Error"
+      parameters:
+      - in: path
+        name: ledger
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required for cookie-authenticated writes; obtain from auth/me.
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                role:
+                  type: string
+                  enum:
+                  - editor
+                  - viewer
+              required:
+              - userId
+              - role
+              additionalProperties: false
+  "/api/v1/ledgers/{ledger}/members/{user}":
+    patch:
+      operationId: changeLedgerMember
+      description: Owner only. Version check prevents stale changes; owner cannot
+        be removed or downgraded.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                - ok
+                additionalProperties: false
+        default:
+          "$ref": "#/components/responses/Error"
+      parameters:
+      - in: path
+        name: ledger
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: user
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required for cookie-authenticated writes; obtain from auth/me.
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum:
+                  - editor
+                  - viewer
+                  - remove
+                version:
+                  type: integer
+              required:
+              - role
+              - version
+              additionalProperties: false
+  "/api/v1/invitations":
+    get:
+      operationId: listInvitations
+      description: Only pending invitations addressed to the authenticated user.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invitations:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/LedgerInvitation"
+                required:
+                - invitations
+                additionalProperties: false
+        default:
+          "$ref": "#/components/responses/Error"
+  "/api/v1/invitations/{id}/respond":
+    post:
+      operationId: respondInvitation
+      description: Recipient only. Accept grants membership; decline does not. Replays
+        fail. Both are audited.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                - ok
+                additionalProperties: false
+        default:
+          "$ref": "#/components/responses/Error"
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required for cookie-authenticated writes; obtain from auth/me.
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                accept:
+                  type: boolean
+              required:
+              - accept
+              additionalProperties: false
+  "/api/v1/auth/account":
+    get:
+      operationId: accountDetails
+      description: Current product user, linked identities and unexpired pending merges.
+        Requires login.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    "$ref": "#/components/schemas/AuthUser"
+                  identities:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/LinkedIdentity"
+                  pendingMerges:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/PendingMerge"
+                required:
+                - user
+                - identities
+                - pendingMerges
+                additionalProperties: false
+        default:
+          "$ref": "#/components/responses/Error"
+    patch:
+      operationId: renameAccount
+      description: Updates the current account display name.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                - ok
+                additionalProperties: false
+        default:
+          "$ref": "#/components/responses/Error"
+      parameters:
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required for cookie-authenticated writes; obtain from auth/me.
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+              required:
+              - name
+              additionalProperties: false
+  "/api/v1/auth/account/unlink":
+    post:
+      operationId: unlinkIdentity
+      description: Unlinks an owned identity and revokes its sessions. The final login
+        and protected bootstrap identities cannot be removed.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                - ok
+                additionalProperties: false
+        default:
+          "$ref": "#/components/responses/Error"
+      parameters:
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required for cookie-authenticated writes; obtain from auth/me.
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                subject:
+                  type: string
+              required:
+              - provider
+              - subject
+              additionalProperties: false
+  "/api/v1/auth/account/merge":
+    post:
+      operationId: confirmAccountMerge
+      description: Consumes a completed OAuth binding proof belonging to the same
+        initiating live session. Preserves both accounts ledger memberships, takes
+        the higher role for overlaps, revokes source account sessions, and keeps historical
+        actor IDs.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                - ok
+                additionalProperties: false
+        default:
+          "$ref": "#/components/responses/Error"
+      parameters:
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required for cookie-authenticated writes; obtain from auth/me.
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+              required:
+              - id
+              additionalProperties: false
+  "/api/v1/admin/users":
+    get:
+      operationId: listRegisteredUsers
+      description: Superadmin only. Unified product accounts, not provider identities.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/RegisteredUser"
+                required:
+                - users
+                additionalProperties: false
+        default:
+          "$ref": "#/components/responses/Error"
+  "/api/v1/admin/users/{id}":
+    patch:
+      operationId: setUserAdmission
+      description: Superadmin only, optimistic version check. Disabling applies to
+        all linked channels; bootstrap superadmins are protected. Does not grant ledger
+        membership.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                - ok
+                additionalProperties: false
+        default:
+          "$ref": "#/components/responses/Error"
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required for cookie-authenticated writes; obtain from auth/me.
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                version:
+                  type: integer
+              required:
+              - enabled
+              - version
+              additionalProperties: false
 components:
   securitySchemes:
     localBearer:
@@ -854,6 +1382,9 @@ components:
           - ''
           - member
           - superadmin
+        id:
+          type: string
+          description: Stable product account UUID; independent of the login provider.
       required:
       - provider
       - subject
@@ -862,6 +1393,7 @@ components:
       - displayName
       - allowed
       - role
+      - id
     AuthState:
       type: object
       properties:
@@ -989,3 +1521,125 @@ components:
       - action
       - entryId
       - createdAt
+    LedgerInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum:
+          - owner
+          - editor
+          - viewer
+        version:
+          type: integer
+      required:
+      - id
+      - name
+      - role
+      - version
+      additionalProperties: false
+    LedgerMember:
+      type: object
+      properties:
+        userId:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum:
+          - owner
+          - editor
+          - viewer
+        version:
+          type: integer
+      required:
+      - userId
+      - name
+      - role
+      - version
+      additionalProperties: false
+    LedgerInvitation:
+      type: object
+      properties:
+        id:
+          type: string
+        ledgerId:
+          type: string
+        ledgerName:
+          type: string
+        role:
+          type: string
+          enum:
+          - editor
+          - viewer
+        invitedBy:
+          type: string
+      required:
+      - id
+      - ledgerId
+      - ledgerName
+      - role
+      - invitedBy
+      additionalProperties: false
+    LinkedIdentity:
+      type: object
+      properties:
+        provider:
+          type: string
+        subject:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+      required:
+      - provider
+      - subject
+      - username
+      - email
+      additionalProperties: false
+    PendingMerge:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        name:
+          type: string
+        username:
+          type: string
+      required:
+      - id
+      - provider
+      - name
+      - username
+      additionalProperties: false
+    RegisteredUser:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        role:
+          type: string
+          enum:
+          - member
+          - superadmin
+        version:
+          type: integer
+      required:
+      - id
+      - name
+      - enabled
+      - role
+      - version
+      additionalProperties: false

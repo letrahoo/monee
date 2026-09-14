@@ -1,5 +1,7 @@
 # 本地账本数据链路
 
+> 账号、权限和数据文件布局已更新：以 [统一账号与多账本模型](unified-accounts-ledgers.md) 为准。当前使用 `application.db`；下文涉及独立 `auth.db` / `monee.db` 和单账本的描述属于旧版。
+
 更新：2026-09-14。本文描述已实现能力；[完整 MVP 架构提案](mvp-proposal.md) 中的后续模块不代表已经交付。
 
 当前已增加强制 Google / GitHub 登录与白名单；登录配置及新的会话流程见[登录与访问白名单](login-and-access.md)。旧的共享本地访问令牌已移除。
