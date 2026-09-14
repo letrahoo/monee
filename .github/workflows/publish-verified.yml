@@ -1,0 +1,59 @@
+name: Publish verified build
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Build Monee run ID
+        required: true
+        type: string
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BUILD_RUN_ID: ${{ inputs.run_id }}
+    steps:
+      - name: Verify build provenance
+        id: build
+        shell: bash
+        run: |
+          [[ "$BUILD_RUN_ID" =~ ^[0-9]+$ ]]
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN_ID" > run.json
+          jq -e --arg repo "$GH_REPO" '.conclusion == "success" and .head_branch == "main" and .event == "push" and .path == ".github/workflows/build.yml" and .head_repository.full_name == $repo' run.json
+          echo "sha=$(jq -r .head_sha run.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.build.outputs.sha }}
+      - name: Download and verify existing packages
+        shell: bash
+        run: |
+          version=$(sed -n 's/^moneeVersion=//p' gradle.properties)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          mkdir dist
+          for platform in linux-amd64 macos-arm64 macos-amd64; do
+            gh run download "$BUILD_RUN_ID" --name "monee-$version-$platform" --dir dist
+          done
+          cd dist
+          test "$(find . -name '*.sha256' | wc -l)" -eq 5
+          sha256sum -c *.sha256
+      - name: Publish preview
+        shell: bash
+        env:
+          BUILD_SHA: ${{ steps.build.outputs.sha }}
+        run: |
+          tag="v$VERSION"
+          notes="docs/releases/$VERSION.md"
+          printf '\n\n构建来源：[通过验证的 GitHub Actions 构建](https://github.com/%s/actions/runs/%s)，源码提交 `%s`。\n' "$GH_REPO" "$BUILD_RUN_ID" "$BUILD_SHA" >> "$notes"
+          if gh release view "$tag" --json isDraft,targetCommitish > release.json; then
+            jq -e --arg sha "$BUILD_SHA" '.isDraft == true and .targetCommitish == $sha' release.json
+          else
+            gh release create "$tag" --draft --prerelease --target "$BUILD_SHA" --title "Monee $VERSION" --notes-file "$notes"
+          fi
+          gh release upload "$tag" dist/* --clobber
+          gh release edit "$tag" --draft=false --prerelease --notes-file "$notes"
