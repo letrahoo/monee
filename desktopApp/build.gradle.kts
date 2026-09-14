@@ -29,7 +29,8 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg)
             packageName = "Monee"
-            packageVersion = providers.gradleProperty("moneeVersion").get()
+            // JDK jpackage rejects a zero major version even with a separate build number.
+            packageVersion = "1.0.1"
             macOS {
                 // Build number is separate from the user-visible preview version.
                 packageBuildVersion = "1.0.1"
@@ -48,5 +49,27 @@ compose.desktop {
                 }
             }
         }
+    }
+}
+
+// Set the marketing version after jpackage validation, before the DMG consumes the app.
+// Re-sign the outer bundle because Info.plist is covered by its ad-hoc signature.
+tasks.named("createDistributable") {
+    val marketingVersion = providers.gradleProperty("moneeVersion")
+    inputs.property("marketingVersion", marketingVersion)
+    doLast {
+        val app = layout.buildDirectory.dir("compose/binaries/main/app/Monee.app").get().asFile
+        providers.exec {
+            commandLine("/usr/libexec/PlistBuddy", "-c",
+                "Set :CFBundleShortVersionString ${marketingVersion.get()}",
+                app.resolve("Contents/Info.plist"))
+        }.result.get().assertNormalExitValue()
+        providers.exec {
+            commandLine("/usr/bin/codesign", "--force", "--sign", "-",
+                "--preserve-metadata=entitlements,requirements,flags,runtime", app)
+        }.result.get().assertNormalExitValue()
+        providers.exec {
+            commandLine("/usr/bin/codesign", "--verify", "--deep", "--strict", app)
+        }.result.get().assertNormalExitValue()
     }
 }
