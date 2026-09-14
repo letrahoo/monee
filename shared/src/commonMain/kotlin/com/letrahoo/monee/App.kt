@@ -106,7 +106,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError
                     Text("${user.provider.displayProvider()} · ${user.label}${if(user.role=="superadmin")" · 超管"else""}",fontSize=12.sp,color=Muted)
                     Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                         if(user.role=="superadmin")TextButton(onClick=onManage,enabled=!working&&!authBusy){Text("管理白名单")}
-                        TextButton(onClick=onLogout,enabled=!working&&!authBusy){Text("退出登录")}
+                        OutlinedButton(onClick=onLogout,enabled=!working&&!authBusy){Text(if(authBusy)"正在退出…"else"退出登录")}
                     }
                     authError?.let{Text(it,color=MaterialTheme.colors.error)}
                 }

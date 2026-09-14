@@ -23,6 +23,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.Font
 import org.jetbrains.compose.resources.painterResource
@@ -36,24 +37,33 @@ fun App() {
     var actionError by remember {mutableStateOf<String?>(null)}
     var refresh by remember {mutableStateOf(0)}
     var busy by remember {mutableStateOf(false)}
+    var loggingOut by remember {mutableStateOf(false)}
     var managing by remember {mutableStateOf(false)}
     var loginJob by remember {mutableStateOf<Job?>(null)}
     DisposableEffect(api) {onDispose {api.close()}}
-    LaunchedEffect(refresh) {
+    LaunchedEffect(refresh,busy) {
+        if(busy)return@LaunchedEffect
+        val revision=refresh
         while(true) {
-            try {auth=api.authState();connectionError=null}
+            try {
+                val state=api.authState()
+                ensureActive()
+                if(!busy&&refresh==revision){auth=state;connectionError=null}
+            }
             catch(e:CancellationException){throw e}
-            catch(e:Exception){connectionError=e.message ?: "无法验证登录状态"}
+            catch(e:Exception){if(!busy&&refresh==revision)connectionError=e.message ?: "无法验证登录状态"}
             delay(5000)
         }
     }
     fun accessLost(){auth=null;managing=false;refresh++}
     fun logout(){scope.launch {
-        busy=true;actionError=null
-        try {api.logout();auth=null;managing=false;refresh++}
+        if(busy)return@launch
+        busy=true;loggingOut=true;actionError=null
+        loginJob?.cancel();loginJob=null
+        try {api.logout();auth=null;managing=false;connectionError=null;refresh++}
         catch(e:CancellationException){throw e}
-        catch(e:Exception){actionError=e.message}
-        finally{busy=false}
+        catch(e:Exception){actionError=e.message ?: "退出登录失败，请重试"}
+        finally{loggingOut=false;busy=false}
     }}
     fun login(provider:String){loginJob=scope.launch {
         busy=true;actionError=null
@@ -71,7 +81,7 @@ fun App() {
         typography=Typography(defaultFontFamily=FontFamily(Font(Res.font.noto_sans_sc)))) {
         if(user?.allowed==true&&connectionError==null) {
             key(user.provider,user.subject) {
-                if(managing&&user.role=="superadmin") AccessManagement(api,user,onBack={managing=false},onAccessLost=::accessLost)
+                if(managing&&user.role=="superadmin") AccessManagement(api,user,busy,actionError,onBack={managing=false},onLogout=::logout,onAccessLost=::accessLost)
                 else LedgerScreen(api,user,busy,actionError,onLogout=::logout,onManage={managing=true},onAccessLost=::accessLost)
             }
         } else {
@@ -92,7 +102,7 @@ fun App() {
                         if(auth==null&&connectionError==null&&!busy)LinearProgressIndicator(Modifier.fillMaxWidth())
                         connectionError?.let{Text(it,color=MaterialTheme.colors.error)}
                         actionError?.let{Text(it,color=MaterialTheme.colors.error)}
-                        if(busy){LinearProgressIndicator(Modifier.fillMaxWidth());Text("请在浏览器中完成登录，完成后应用会自动更新。",fontSize=13.sp)}
+                        if(busy){LinearProgressIndicator(Modifier.fillMaxWidth());Text(if(loggingOut)"正在退出登录…"else"请在浏览器中完成登录，完成后应用会自动更新。",fontSize=13.sp)}
                         listOf("google","github").forEach {provider->
                             val enabled=auth?.providers?.any{it.id==provider&&it.enabled}==true
                             OutlinedButton(onClick={login(provider)},enabled=enabled&&!busy&&connectionError==null,modifier=Modifier.fillMaxWidth()){
@@ -117,7 +127,7 @@ internal fun String.displayProvider()=if(this=="google")"Google"else"GitHub"
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AccessManagement(api:LedgerApi,user:AuthUser,onBack:()->Unit,onAccessLost:()->Unit){
+private fun AccessManagement(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError:String?,onBack:()->Unit,onLogout:()->Unit,onAccessLost:()->Unit){
     val scope=rememberCoroutineScope()
     var entries by remember {mutableStateOf<List<AccessEntry>>(emptyList())}
     var history by remember {mutableStateOf<List<AccessAudit>>(emptyList())}
@@ -141,12 +151,14 @@ private fun AccessManagement(api:LedgerApi,user:AuthUser,onBack:()->Unit,onAcces
     Column(Modifier.fillMaxSize().background(MaterialTheme.colors.background).verticalScroll(rememberScrollState()).padding(24.dp),verticalArrangement=Arrangement.spacedBy(18.dp)){
         FlowRow(horizontalArrangement=Arrangement.spacedBy(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             Text("访问白名单",fontSize=28.sp,fontWeight=FontWeight.Bold,color=Pine)
-            TextButton(onClick=onBack,enabled=!busy){Text("返回账本")}
-            TextButton(onClick={action{reload()}},enabled=!busy){Text("刷新名单")}
+            TextButton(onClick=onBack,enabled=!busy&&!authBusy){Text("返回账本")}
+            TextButton(onClick={action{reload()}},enabled=!busy&&!authBusy){Text("刷新名单")}
+            OutlinedButton(onClick=onLogout,enabled=!busy&&!authBusy){Text(if(authBusy)"正在退出…"else"退出登录")}
         }
         Text("超管：${user.label}",color=Muted)
         Text("白名单成员可以读写这份本地账本。停用后，账号的下一次数据请求将被拒绝。初始超管受保护。",color=Muted,fontSize=13.sp)
-        if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
+        if(busy||authBusy)LinearProgressIndicator(Modifier.fillMaxWidth())
+        authError?.let{Text(it,color=MaterialTheme.colors.error)}
         error?.let{Text(it,color=MaterialTheme.colors.error)}
         notice?.let{Text(it,color=Pine)}
         Surface(shape=RoundedCornerShape(18.dp)){
@@ -164,7 +176,7 @@ private fun AccessManagement(api:LedgerApi,user:AuthUser,onBack:()->Unit,onAcces
                 OutlinedTextField(input.value,{input=input.copy(value=it)},Modifier.fillMaxWidth(),label={Text(input.kind.selectorLabel())},singleLine=true,enabled=!busy)
                 OutlinedTextField(input.note,{input=input.copy(note=it)},Modifier.fillMaxWidth(),label={Text("备注（可选）")},singleLine=true,enabled=!busy)
                 Text(if(input.kind=="subject")"按平台验证过的稳定账号 ID 匹配，请核对 ID。"else if(input.provider=="github")"用户名会经 GitHub 查询并绑定到稳定账号 ID。"else"邮箱邀请在首次验证登录时绑定账号 ID，仅支持 Google 已验证的 Gmail / Workspace 邮箱；其他 Google 账号请填写账号 ID。",fontSize=12.sp,color=Muted)
-                Button(onClick={action{api.addAccess(input);input=input.copy(value="",note="");reload();notice="账号已添加到白名单。"}},enabled=!busy&&input.value.isNotBlank()){Text("添加到白名单")}
+                Button(onClick={action{api.addAccess(input);input=input.copy(value="",note="");reload();notice="账号已添加到白名单。"}},enabled=!busy&&!authBusy&&input.value.isNotBlank()){Text("添加到白名单")}
             }
         }
         Text("已配置账号 · ${entries.size}",fontSize=20.sp,fontWeight=FontWeight.Bold)
@@ -176,7 +188,7 @@ private fun AccessManagement(api:LedgerApi,user:AuthUser,onBack:()->Unit,onAcces
                     Text(if(entry.role=="superadmin")"超管 · 受保护"else if(entry.enabled)"已启用"else"已停用",color=if(entry.enabled)Pine else Muted)
                     Text(if(entry.subject.isBlank())"等待首次验证登录后绑定账号 ID"else"账号 ID：${entry.subject}",fontSize=12.sp,color=Muted)
                     if(entry.note.isNotBlank())Text(entry.note,fontSize=13.sp)
-                    if(!entry.protected)OutlinedButton(onClick={action{api.setAccess(entry);reload();notice=if(entry.enabled)"账号已停用。"else"账号已启用。"}},enabled=!busy){Text(if(entry.enabled)"停用访问"else"启用访问")}
+                    if(!entry.protected)OutlinedButton(onClick={action{api.setAccess(entry);reload();notice=if(entry.enabled)"账号已停用。"else"账号已启用。"}},enabled=!busy&&!authBusy){Text(if(entry.enabled)"停用访问"else"启用访问")}
                 }
             }
         }
