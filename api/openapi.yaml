@@ -1,0 +1,288 @@
+openapi: 3.1.0
+info:
+  title: Monee Local Ledger API
+  version: 1.0.0
+  description: |
+    Single-user loopback API. Only CNY ordinary income/expense is supported.
+    Input amounts are positive decimal yuan strings; response amounts are integer fen strings.
+    JSON write bodies are limited to 3 MiB and reject unknown fields.
+    Requests require the exact configured Host. A supplied Origin must match that host;
+    cross-site/same-site Fetch Metadata is rejected. No cross-origin CORS is offered.
+servers:
+  - url: http://127.0.0.1:4173
+security:
+  - localBearer: []
+paths:
+  /api/v1/health:
+    get:
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: Service is running.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, apiVersion, schemaVersion]
+                properties:
+                  status: {type: string, const: ok}
+                  apiVersion: {type: integer, const: 1}
+                  schemaVersion: {type: integer, const: 1}
+        default: {$ref: '#/components/responses/Error'}
+  /api/v1/session:
+    get:
+      operationId: browserSession
+      security: []
+      description: Browser fetch must have Sec-Fetch-Site same-origin. Native clients read the private connection.json instead.
+      parameters:
+        - in: header
+          name: Sec-Fetch-Site
+          required: true
+          schema: {type: string, const: same-origin}
+      responses:
+        '200':
+          description: Ephemeral connection credentials. Never persist in URLs or logs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [baseUrl, token]
+                properties:
+                  baseUrl: {type: string, format: uri}
+                  token: {type: string}
+        default: {$ref: '#/components/responses/Error'}
+  /api/v1/dashboard:
+    get:
+      operationId: dashboard
+      description: Statistics cover the entire month. Search and page only filter the transaction list.
+      parameters:
+        - in: query
+          name: month
+          description: YYYY-MM between 1900 and 2200; empty or omitted selects this month in Asia/Shanghai.
+          schema: {type: string}
+        - in: query
+          name: q
+          description: Case-insensitive literal substring of merchant, category, source, account or note.
+          schema: {type: string, maxLength: 100}
+        - in: query
+          name: page
+          schema: {type: integer, minimum: 1, maximum: 100000, default: 1}
+      responses:
+        '200':
+          description: Monthly aggregates and at most 50 transactions, sorted by date and creation time descending, then ID.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Dashboard'}
+        default: {$ref: '#/components/responses/Error'}
+  /api/v1/transactions:
+    post:
+      operationId: createTransaction
+      description: Same key and normalized input return the same transaction, including after a lost response. Changing the input under that key returns 409.
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: {type: string, minLength: 16, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TransactionInput'}
+      responses:
+        '201':
+          description: Persisted transaction (also returned for an idempotent replay).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Transaction'}
+        default: {$ref: '#/components/responses/Error'}
+  /api/v1/imports/preview:
+    post:
+      operationId: previewImport
+      description: |
+        Standard UTF-8 CSV, optional BOM, at most 2 MiB and 1000 records.
+        Required columns are date,type,amount,currency,merchant,source.
+        Optional columns are category,account,external_id,note.
+        Structural or row errors are returned in errors with HTTP 200; do not commit such a result.
+        Batches without validation/identity conflicts and their raw CSV are persisted.
+        Transactions are not created by preview.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [csv]
+              properties:
+                filename: {type: string, description: Basename is retained; at most 200 characters after basename extraction.}
+                csv: {type: string}
+      responses:
+        '200':
+          description: Preview with errors, duplicate/similar status or alreadyCommitted indication.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ImportPreview'}
+        default: {$ref: '#/components/responses/Error'}
+  /api/v1/imports/{id}/commit:
+    post:
+      operationId: commitImport
+      description: |
+        Commit the complete preview atomically. Ledger changes since preview cause 409.
+        Similar records require confirmSimilar=true, acknowledging they are independent transactions.
+        This does not merge cross-source records. Already committed batches return the original result.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                ledgerVersion: {type: integer, format: int64, default: 0}
+                confirmSimilar: {type: boolean, default: false}
+      responses:
+        '200':
+          description: Original commit result; added/skipped are counts for that batch, not this HTTP request.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [importId, added, skipped, month]
+                properties:
+                  importId: {type: string, format: uuid}
+                  added: {type: integer, minimum: 0}
+                  skipped: {type: integer, minimum: 0}
+                  month: {type: string, description: Latest business month in this batch.}
+        default: {$ref: '#/components/responses/Error'}
+  /api/v1/template:
+    get:
+      operationId: csvTemplate
+      parameters:
+        - in: query
+          name: sample
+          schema: {type: boolean, default: false}
+      responses:
+        '200':
+          description: Standard CSV header, with three synthetic records when sample=true.
+          content:
+            text/csv:
+              schema: {type: string}
+        default: {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    localBearer:
+      type: http
+      scheme: bearer
+      description: Random token rotated on service startup. Obtain from same-origin session or private native connection file.
+  responses:
+    Error:
+      description: |
+        400 malformed/oversized JSON; 401 missing/invalid token; 403 invalid host/origin;
+        404 unknown import; 409 identity/idempotency/preview conflict;
+        415 non-JSON write; 422 business validation; 500 internal failure.
+        Unknown routes and unsupported methods may use the HTTP router's plain-text 404/405.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message]
+            properties:
+              code: {type: string}
+              message: {type: string}
+  schemas:
+    Minor:
+      type: string
+      pattern: '^-?[0-9]+$'
+      description: Signed 64-bit integer fen as a decimal string. Never a JSON number.
+    TransactionInput:
+      type: object
+      additionalProperties: false
+      required: [date, type, amount, currency, merchant, source]
+      properties:
+        date: {type: string, format: date, description: Valid Gregorian date between 1900 and 2200.}
+        type: {type: string, enum: [income, expense, 收入, 支出]}
+        amount:
+          type: string
+          pattern: '^[0-9]{1,11}(\.[0-9]{1,2})?$'
+          description: Positive yuan, up to 10000000000.00; trimmed before validation.
+        currency: {type: string, const: CNY}
+        merchant: {type: string, minLength: 1, maxLength: 200}
+        category: {type: string, maxLength: 200, description: Empty becomes 未分类.}
+        source: {type: string, minLength: 1, maxLength: 200}
+        account: {type: string, maxLength: 200, description: Empty becomes 待核实资金账户.}
+        externalId: {type: string, maxLength: 200}
+        note: {type: string, maxLength: 1000}
+    Transaction:
+      type: object
+      required: [id, date, type, amountMinor, currency, merchant, category, source, account, externalId, note, version]
+      properties:
+        id: {type: string, format: uuid}
+        date: {type: string, format: date}
+        type: {type: string, enum: [income, expense]}
+        amountMinor: {$ref: '#/components/schemas/Minor'}
+        currency: {type: string, const: CNY}
+        merchant: {type: string}
+        category: {type: string}
+        source: {type: string}
+        account: {type: string, description: Currently a clearing account; does not imply a verified asset balance.}
+        externalId: {type: string}
+        note: {type: string}
+        version: {type: integer, format: int64, minimum: 1}
+    Dashboard:
+      type: object
+      required: [ledgerId, version, month, today, months, incomeMinor, expenseMinor, sourceCount, totalCount, filteredCount, page, pageSize, categories, transactions]
+      properties:
+        ledgerId: {type: string, format: uuid}
+        version: {type: integer, format: int64, minimum: 0}
+        month: {type: string}
+        today: {type: string, format: date}
+        months: {type: array, items: {type: string}, description: Descending; includes selected month and current month.}
+        incomeMinor: {$ref: '#/components/schemas/Minor', description: Nonnegative monthly income in fen.}
+        expenseMinor: {$ref: '#/components/schemas/Minor', description: Nonnegative monthly expense in fen.}
+        sourceCount: {type: integer, minimum: 0}
+        totalCount: {type: integer, minimum: 0}
+        filteredCount: {type: integer, minimum: 0}
+        page: {type: integer, minimum: 1}
+        pageSize: {type: integer, const: 50}
+        categories:
+          type: array
+          description: Expense categories sorted by amount descending then name.
+          items:
+            type: object
+            required: [name, amountMinor]
+            properties:
+              name: {type: string}
+              amountMinor: {$ref: '#/components/schemas/Minor', description: Positive expense total in fen.}
+        transactions:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/Transaction'}
+    ImportPreview:
+      type: object
+      required: [id, filename, ledgerVersion, rows, newCount, duplicateCount, similarCount, errors, alreadyCommitted]
+      properties:
+        id: {type: string, description: Stable batch UUID; empty on parse failure.}
+        filename: {type: string}
+        ledgerVersion: {type: integer, format: int64, minimum: 0}
+        newCount: {type: integer, minimum: 0, description: Includes similar records that require explicit confirmation.}
+        duplicateCount: {type: integer, minimum: 0}
+        similarCount: {type: integer, minimum: 0}
+        errors: {type: array, items: {type: string}}
+        alreadyCommitted: {type: boolean}
+        rows:
+          type: array
+          maxItems: 1000
+          items:
+            type: object
+            required: [line, record, status, message]
+            properties:
+              line: {type: integer, minimum: 2, description: Physical CSV line where the record begins.}
+              record: {$ref: '#/components/schemas/Transaction'}
+              status: {type: string, enum: [new, duplicate, similar, conflict]}
+              message: {type: string}

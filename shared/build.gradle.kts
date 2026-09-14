@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 kotlin {
@@ -19,7 +20,14 @@ kotlin {
             implementation(libs.compose.material)
             implementation(libs.compose.ui)
             implementation(libs.compose.resources)
+            implementation(libs.ktor.core)
+            implementation(libs.serialization.json)
         }
+        jvmMain.dependencies {
+            implementation(libs.ktor.cio)
+            implementation(libs.coroutines.swing)
+        }
+        wasmJsMain.dependencies { implementation(libs.ktor.js) }
         commonTest.dependencies { implementation(kotlin("test")) }
     }
 }

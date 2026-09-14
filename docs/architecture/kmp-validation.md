@@ -1,12 +1,12 @@
 # KMP 体验验证
 
-更新：2026-09-14。目的：验证相同 Compose 界面在 Web / Mac 上的真实表现，作为后续账本开发的基础。
+更新：2026-09-14。Web / Mac 已接入同一个本地 Go 服务，默认不再使用演示数据。最新联调与运行方式见[本地数据链路](local-data-flow.md)。下方“首轮界面验证记录”保留最初合成数据阶段的观察。
 
 ## 已确定的边界
 
 - 共享 Kotlin / Compose UI、展示模型、金额格式化和筛选交互。
 - Web 编译为 Kotlin/Wasm；Mac 使用 Kotlin/JVM + Compose Desktop。两端使用各自运行时，无 WebView 容器。
-- Go 负责后续账本与数据处理，SQLite 本地共用策略保持不变。
+- Go 已负责账本、导入与统计，Web / Mac 通过 Ktor 共用同一个 SQLite 本地账本。
 - 当前只有 Web/Mac 工程入口；Android/iOS 需补充平台配置与真机验证。
 
 ## 验证工程
@@ -27,17 +27,17 @@ Gradle wrapper 来自该模板，仅使用通用启动脚本及 wrapper JAR，�
 
 ```sh
 ./gradlew :desktopApp:run
-./gradlew :webApp:wasmJsBrowserDevelopmentRun
+./scripts/run-local.sh # 先运行服务并提供同源 Web，再启动 Mac
 ./gradlew :shared:jvmTest :desktopApp:classes :webApp:wasmJsBrowserDistribution
 # 在 macOS 生成可直接启动的 .app（尚未签名、公证）
 ./gradlew :desktopApp:createDistributable
 ```
 
-Web 开发任务会持续运行，访问其输出的本地地址。桌面运行任务会打开应用窗口。首次构建需要下载依赖，JDK 通过 `JAVA_HOME` 或开发工具选择；不在仓库固定本机 JDK 路径。
+本地服务持续运行，浏览器访问 http://127.0.0.1:4173/。桌面任务打开窗口，并从私有连接文件发现同一服务。独立 Web 开发服务器不包含账本服务。首次构建需要下载依赖，JDK 通过 `JAVA_HOME` 或开发工具选择；不在仓库固定本机 JDK 路径。
 
-自动检查覆盖中文搜索的月份隔离、分位精度、大于 JavaScript 安全整数的金额显示，以及 `Long.MIN_VALUE` 的符号和精度。
+当前共享测试覆盖分位精度、大于 JavaScript 安全整数的金额显示与 JSON 字符串解析，以及 `Long.MIN_VALUE` 的符号和精度；月份、搜索与账本规则在 Go 中测试。
 
-## 验证记录
+## 首轮界面验证记录（接入 API 之前）
 
 2026-09-14，在 Apple Silicon Mac、Temurin JDK 17.0.10 和 Codex 内置浏览器上验证；结果只覆盖本次环境。
 
@@ -63,11 +63,12 @@ Web 构建仍给出体积告警：Skiko Wasm 约 8.25 MiB、应用 Wasm 约 2.49
 
 ## 当前限制与下一步
 
-- 所有数据都是合成样本，页面持续标注“演示数据”；刷新/重启恢复初始状态。没有导入、邮件授权、持久化或跨端同步。
+- 当前默认读取真实本地账本，标准 CSV 导入、手动收支、月度统计已接通，原有演示数据类已移除。接口与持久化验收见[数据链路记录](local-data-flow.md)；目录/邮件、完整账单适配和云端同步尚未实现。
 - 中文完整字体约 17 MB，先确保任意中文输入的显示；后续验证字体子集、缓存和加载反馈。字体用于技术验证，不代表最终品牌字体。
 - 需要继续实测中文输入法组合输入、键盘焦点、屏幕阅读器、首屏时间与大列表性能；代码编译通过不能替代这些结果。
 - macOS 分发图标已由品牌原图生成并接入；签名、公证、安装与升级仍属于后续桌面交付阶段。
-- Web/Mac 的最终互通需接入同一个 Go 服务验证；共用演示代码不等于数据库已共享。
+- Web/Mac 共用同一 Go 服务已联调验证：Web 导入和补记后 Mac 自动刷新，读取同样的账单和统计。当前 Mac 不自动启动 Go 服务。
+- 本轮生产构建的应用 Wasm 约 3.12 MiB、Skiko 8.25 MiB、JS 340 KiB，另有完整中文字体约 17 MB。Webpack 仍有体积告警和 Ktor 动态依赖告警；本轮 Web 运行未出现控制台 error，不等于所有平台兼容性完成。
 
 ## 参考
 
