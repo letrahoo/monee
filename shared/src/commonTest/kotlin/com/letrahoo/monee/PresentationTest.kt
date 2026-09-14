@@ -2,7 +2,8 @@ package com.letrahoo.monee
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import com.letrahoo.monee.data.LedgerTransaction
+import kotlinx.serialization.json.Json
 
 class PresentationTest {
     @Test
@@ -14,9 +15,9 @@ class PresentationTest {
     }
 
     @Test
-    fun chineseSearchRespectsSelectedMonth() {
-        assertEquals(listOf("demo-002"), filterTransactions("2026-09", " 微信 ").map { it.id })
-        assertEquals(listOf("demo-006"), filterTransactions("2026-08", "餐饮").map { it.id })
-        assertTrue(filterTransactions("2026-09", "不存在的商户").isEmpty())
+    fun serverMoneyRemainsExactThroughJson() {
+        val record = Json.decodeFromString<LedgerTransaction>("""{"id":"test","date":"2026-09-14","type":"income","amountMinor":"9007199254740993","currency":"CNY","merchant":"中文商户","category":"工资","source":"银行","account":"待核实","externalId":"","note":"","version":1}""")
+        assertEquals("9007199254740993", record.amountMinor)
+        assertEquals("¥90,071,992,547,409.93", formatMoney(record.amountMinor.toLong()))
     }
 }

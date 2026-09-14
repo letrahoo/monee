@@ -9,6 +9,9 @@ local.properties
 node_modules/
 kotlin-js-store/
 .env
+.env.*
+connection.json
+connection.json.tmp
 *.db
 *.db-shm
 *.db-wal

@@ -1,0 +1,4 @@
+date,type,amount,currency,merchant,category,source,account,external_id,note
+2026-09-14,expense,28.50,CNY,示例咖啡,餐饮,示例支付宝,待核实资金账户,SAMPLE-FILE-001,合成测试数据
+2026-09-13,expense,96.00,CNY,示例书店,学习,示例微信,待核实资金账户,SAMPLE-FILE-002,合成测试数据
+2026-09-10,income,25000.00,CNY,示例工资,工资,示例银行,待核实资金账户,SAMPLE-FILE-003,合成测试数据
