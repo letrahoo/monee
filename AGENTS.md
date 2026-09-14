@@ -23,6 +23,9 @@
 
 ## 设计依据
 
+- 接续入口与已完成范围：`docs/HANDOFF.md`
+- 换机运行、配置和私有资料边界：`docs/operations/development.md`
+
 - 产品范围：`docs/product/mvp-discussion.md`
 - 架构：`docs/architecture/mvp-proposal.md`
 - KMP 验证：`docs/architecture/kmp-validation.md`

@@ -8,6 +8,8 @@
 
 Monee 是一款本地优先的个人财务助手，目标是自动整理账单、解释财务变化，只在需要判断时提醒你。当前正在逐步实现 MVP。
 
+**换电脑或新会话接续：先读[开发交接](docs/HANDOFF.md)和[异地开发指南](docs/operations/development.md)。当前开发分支为 `feat/oauth-allowlist`，PR #3 基于尚未合并的 PR #2；main 可能仍是较早版本。**
+
 ## 产品方向
 
 - **自动归集**：优先接收指定文件夹和邮件附件中的账单，必要时补充手动导入。
@@ -61,6 +63,9 @@ Web 需要支持 WebAssembly GC 的现代浏览器。完整中文字体随应用
 
 ## 文档与品牌资源
 
+- [开发交接](docs/HANDOFF.md)：方案、产品原则、完成状态、验证缺口和下一步。
+- [异地开发指南](docs/operations/development.md)：获取代码、无凭据测试、独立账本与配置恢复边界。
+- [登录与访问白名单](docs/architecture/login-and-access.md)：OAuth、权限模型和实际验收。
 - [品牌说明](docs/brand.md)：Logo 原图、Slogan 与使用约定。
 - [Logo 原图](assets/brand/logo.png)：1254 × 1254 PNG。
 - [应用图标](assets/brand/app-icon.png)：透明边缘派生图，供页面和 Mac 打包使用。

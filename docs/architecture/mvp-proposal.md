@@ -133,7 +133,7 @@ Mac 通过 Compose Desktop 的原生分发打包。Go 服务可作为附带可�
 
 ## 完整 MVP 建议目录
 
-当前 Go 代码集中在 `cmd/monee`、`internal/httpapi`、`internal/ledger`（含迁移）；在后续复杂度增加时按下列职责拆分。
+当前 Go 代码集中在 `cmd/monee`、`internal/httpapi`、`internal/auth`、`internal/ledger`（含迁移）；在后续复杂度增加时按下列职责拆分。
 
 ```text
 shared/                   # KMP：共享 Compose UI、客户端模型、状态和 API 访问
