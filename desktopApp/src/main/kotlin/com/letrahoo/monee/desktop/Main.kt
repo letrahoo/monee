@@ -13,7 +13,7 @@ fun main() {
     application {
         Window(
             onCloseRequest = ::exitApplication,
-            title = "Monee · Know Your Money. Own Your Future.",
+            title = "Monee",
             state = rememberWindowState(width = 1180.dp, height = 850.dp),
         ) {
             DisposableEffect(window) {

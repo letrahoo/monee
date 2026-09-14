@@ -98,9 +98,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Monee",fontSize=26.sp,fontWeight=FontWeight.Bold,color=Pine)
-                        Text("Know Your Money. Own Your Future.",fontSize=if(compact)10.sp else 12.sp,color=Muted)
                     }
-                    Text("本地账本",fontSize=12.sp,color=Pine)
                 }
                 Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
                     Text("${user.provider.displayProvider()} · ${user.label}${if(user.role=="superadmin")" · 超管"else""}",fontSize=12.sp,color=Muted)
@@ -110,17 +108,11 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError
                     }
                     authError?.let{Text(it,color=MaterialTheme.colors.error)}
                 }
-                Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Text("把钱看明白，把生活过从容。",fontSize=if(compact)24.sp else 34.sp,fontWeight=FontWeight.Bold)
-                    Text("少一点日常整理，多一点清晰判断。",fontSize=15.sp,color=Muted)
-                }
-                Surface(color=if(connectionError==null)Color(0xFFEAF0E6)else Color(0xFFFFEBE7),shape=RoundedCornerShape(12.dp)) {
+                if(connectionError!=null) Surface(color=Color(0xFFFFEBE7),shape=RoundedCornerShape(12.dp)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-                        Text(connectionError ?: if(dashboard==null)"正在连接本机账本…" else "已连接本机账本 · 数据保存在本机 · 自动刷新",color=Pine,fontSize=13.sp)
-                        if(connectionError!=null) {
-                            if(dashboard!=null) Text("当前展示上次成功读取的数据。",fontSize=12.sp)
-                            TextButton(onClick={api.reconnect();refresh++}) { Text("重新连接") }
-                        }
+                        Text(connectionError.orEmpty(),color=MaterialTheme.colors.error,fontSize=13.sp)
+                        if(dashboard!=null) Text("数据未更新",fontSize=12.sp)
+                        TextButton(onClick={api.reconnect();refresh++}) { Text("重试") }
                     }
                 }
                 if (loading || working) LinearProgressIndicator(Modifier.fillMaxWidth(),color=Pine)
@@ -135,7 +127,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError
                     ImportPanel(csv,filename,preview,confirmedSimilar,working,
                         onCSVChange=::changeCSV,
                         onPick={runAction { chooseCSV()?.let { filename=it.name;changeCSV(it.text) } }},
-                        onTemplate={sample->runAction { filename=if(sample)"monee-sample.csv"else"import.csv";changeCSV(api.template(sample)) }},
+                        onTemplate={runAction { filename="import.csv";changeCSV(api.template(false)) }},
                         onPreview={runAction { preview=api.preview(filename,csv);confirmedSimilar=false }},
                         onConfirmSimilar={confirmedSimilar=it},
                         onCommit={preview?.let { p->runAction { val result=api.commit(p,confirmedSimilar);preview=null;csv="";saved(result.month,"已保存 ${result.added} 笔，跳过 ${result.skipped} 笔重复流水。") } }},
@@ -145,7 +137,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError
                     ManualPanel(input,working,onChange={input=it;createKey=requestKey()},onSave={runAction {
                         val created=api.create(input,createKey)
                         input=TransactionInput(date=dashboard?.today.orEmpty());createKey=requestKey()
-                        saved(created.date.take(7),"账单已保存到本机。")
+                        saved(created.date.take(7),"已保存")
                     }})
                 }
                 dashboard?.let { data ->
@@ -165,22 +157,13 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError
                             Column(Modifier.padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
                                 Text("本月已入账",fontSize=13.sp,color=Muted)
                                 Text("${data.totalCount} 笔",fontSize=29.sp,fontWeight=FontWeight.Bold)
-                                Text("来自 ${data.sourceCount} 个来源",fontSize=11.sp,color=Muted)
                             }
                         }
                     }
-                    if(data.totalCount==0) {
-                        Surface(color=Color.White,shape=RoundedCornerShape(18.dp)) {
-                            Column(Modifier.fillMaxWidth().padding(24.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                                Text("从第一份账单开始",fontSize=21.sp,fontWeight=FontWeight.Bold,color=Pine)
-                                Text("导入标准 CSV，或手动记一笔。确认后会保存在本机，Web 和 Mac 共用同一份账本。",color=Muted)
-                            }
-                        }
-                    } else if(data.categories.isNotEmpty()) {
+                    if(data.categories.isNotEmpty()) {
                         Surface(color=Color.White,shape=RoundedCornerShape(18.dp)) {
                             Column(Modifier.fillMaxWidth().padding(24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
                                 Text("支出分布",color=Pine,fontWeight=FontWeight.Bold)
-                                Text("${data.categories.first().name}是本月支出最多的分类。",fontSize=19.sp)
                                 data.categories.take(8).forEach { item ->
                                     Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                                         Text(item.name,Modifier.width(70.dp),fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
@@ -198,7 +181,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError
                             trailingIcon={if(query.isNotEmpty())TextButton(onClick={query="";page=1}){Text("清除")}})
                         Card(shape=RoundedCornerShape(16.dp),elevation=0.dp,modifier=Modifier.fillMaxWidth()) {
                             Column {
-                                if(data.transactions.isEmpty()) Text("当前条件下没有账单。",Modifier.padding(24.dp),color=Muted)
+                                if(data.transactions.isEmpty()) Text(if(query.isBlank())"暂无账单，导入或记一笔。"else"没有找到相关账单",Modifier.padding(24.dp),color=Muted)
                                 data.transactions.forEachIndexed { index,item ->
                                     TextButton(onClick={selectedID=if(selectedID==item.id)null else item.id},modifier=Modifier.fillMaxWidth(),contentPadding=PaddingValues(18.dp)) {
                                         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
@@ -216,7 +199,6 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError
                                         Text("日期：${item.date}\n来源：${item.source}\n资金账户：${item.account}（待核实）")
                                         if(item.externalId.isNotEmpty())Text("来源流水号：${item.externalId}")
                                         if(item.note.isNotEmpty())Text("备注：${item.note}")
-                                        Text("已保存到本机账本",fontSize=12.sp,color=Muted)
                                         TextButton(onClick={selectedID=null}){Text("收起详情")}
                                     }
                                     if(index<data.transactions.lastIndex)Divider(color=Line)
@@ -228,10 +210,9 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError
                             Text("第 ${data.page} 页")
                             OutlinedButton(onClick={page++},enabled=data.page*data.pageSize<data.filteredCount&&!loading){Text("下一页")}
                         }
-                        Text("统计覆盖整月，搜索仅筛选明细。当前资金账户均待核实，暂不展示资产余额。",color=Muted,fontSize=12.sp)
+                        if(query.isNotBlank()) Text("搜索仅筛选明细，收支统计不变。",color=Muted,fontSize=12.sp)
                     }
                 }
-                Text("Monee / 每一笔，都有来处。",Modifier.align(Alignment.CenterHorizontally).padding(vertical=8.dp),color=Muted,fontSize=12.sp)
             }
         }
     }
@@ -243,7 +224,6 @@ private fun Metric(label:String,minor:String,emphasized:Boolean,modifier:Modifie
         Column(Modifier.padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
             Text(label,color=if(emphasized)Color(0xFFD6E9DF)else Muted,fontSize=13.sp)
             Text(formatMoney(minor.toLong()),color=if(emphasized)Color.White else Ink,fontSize=29.sp,fontWeight=FontWeight.Bold,maxLines=1)
-            Text("来自本机已确认账单",color=if(emphasized)Color(0xFFD6E9DF)else Muted,fontSize=11.sp)
         }
     }
 }

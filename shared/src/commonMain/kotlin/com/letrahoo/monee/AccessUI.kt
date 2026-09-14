@@ -38,6 +38,8 @@ fun App() {
     var refresh by remember {mutableStateOf(0)}
     var busy by remember {mutableStateOf(false)}
     var loggingOut by remember {mutableStateOf(false)}
+    var showPrivacy by remember {mutableStateOf(false)}
+    var showIdentity by remember {mutableStateOf(false)}
     var managing by remember {mutableStateOf(false)}
     var loginJob by remember {mutableStateOf<Job?>(null)}
     DisposableEffect(api) {onDispose {api.close()}}
@@ -93,31 +95,33 @@ fun App() {
                 Text("Know Your Money. Own Your Future.",color=Muted,fontSize=13.sp)
                 Surface(shape=RoundedCornerShape(20.dp),modifier=Modifier.widthIn(max=540.dp).fillMaxWidth()) {
                     Column(Modifier.padding(26.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-                        Text(if(user!=null&&!user.allowed)"无数据访问权限"else"登录你的 Monee",fontSize=25.sp,fontWeight=FontWeight.Bold,color=Pine)
+                        Text(if(user!=null&&!user.allowed)"无数据访问权限"else"登录 Monee",fontSize=25.sp,fontWeight=FontWeight.Bold,color=Pine)
                         if(user!=null&&!user.allowed) {
                             Text("${user.provider.displayProvider()} · ${user.label}")
-                            Text("你的账号还未获得本地账本的访问权限，请联系超管添加白名单。",color=Muted)
-                            Text("账号 ID：${user.subject}",fontSize=12.sp,color=Muted)
-                        }else Text("使用 Google 或 GitHub 登录。只有白名单内的账号可以查看和管理这份本地账本。",color=Muted)
+                            Text("请联系管理员开通访问权限。",color=Muted)
+                            TextButton(onClick={showIdentity=!showIdentity}){Text("账号信息")}
+                            if(showIdentity) Text("账号 ID：${user.subject}",fontSize=12.sp,color=Muted)
+                        }
                         if(auth==null&&connectionError==null&&!busy)LinearProgressIndicator(Modifier.fillMaxWidth())
                         connectionError?.let{Text(it,color=MaterialTheme.colors.error)}
                         actionError?.let{Text(it,color=MaterialTheme.colors.error)}
-                        if(busy){LinearProgressIndicator(Modifier.fillMaxWidth());Text(if(loggingOut)"正在退出登录…"else"请在浏览器中完成登录，完成后应用会自动更新。",fontSize=13.sp)}
+                        if(busy){LinearProgressIndicator(Modifier.fillMaxWidth());Text(if(loggingOut)"正在退出登录…"else"请在浏览器中完成登录。",fontSize=13.sp)}
                         listOf("google","github").forEach {provider->
                             val enabled=auth?.providers?.any{it.id==provider&&it.enabled}==true
                             OutlinedButton(onClick={login(provider)},enabled=enabled&&!busy&&connectionError==null,modifier=Modifier.fillMaxWidth()){
-                                Text("使用 ${provider.displayProvider()} 登录${if(!enabled)" · 尚未配置"else""}")
+                                Text("使用 ${provider.displayProvider()} 登录${if(auth!=null&&!enabled)" · 暂不可用"else""}")
                             }
                         }
-                        if(auth!=null&&auth!!.providers.none{it.enabled})Text("登录服务尚未配置。请按项目中的登录配置指南填写本机 OAuth 应用信息，再启动服务。",fontSize=12.sp,color=Muted)
+                        if(auth!=null&&auth!!.providers.none{it.enabled})Text("登录暂不可用，请联系管理员。",fontSize=12.sp,color=Muted)
                         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                            TextButton(onClick={api.reconnect();refresh++},enabled=!busy){Text("刷新登录状态")}
+                            if(connectionError!=null) TextButton(onClick={api.reconnect();refresh++},enabled=!busy){Text("重试")}
                             if(user!=null)TextButton(onClick=::logout,enabled=!busy){Text("退出登录")}
                             if(busy&&loginJob!=null)TextButton(onClick={loginJob?.cancel();loginJob=null;busy=false;refresh++}){Text("取消等待")}
                         }
                     }
                 }
-                Text("账本保存在本机。登录仅用于验证身份与访问权限。",fontSize=12.sp,color=Muted)
+                TextButton(onClick={showPrivacy=!showPrivacy}){Text("数据与隐私")}
+                if(showPrivacy) Text("账本保存在这台设备，尚未云端备份。获准的账号可查看和修改账单。",fontSize=12.sp,color=Muted)
             }
         }
     }
@@ -136,6 +140,8 @@ private fun AccessManagement(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
     var notice by remember {mutableStateOf<String?>(null)}
     var busy by remember {mutableStateOf(false)}
     var loaded by remember {mutableStateOf(false)}
+    var showHistory by remember {mutableStateOf(false)}
+    var expandedEntry by remember {mutableStateOf<String?>(null)}
     suspend fun reload(){entries=api.accessList().entries;history=api.accessHistory().events;loaded=true}
     fun action(block:suspend ()->Unit){scope.launch{
         busy=true;error=null;notice=null
@@ -155,8 +161,8 @@ private fun AccessManagement(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
             TextButton(onClick={action{reload()}},enabled=!busy&&!authBusy){Text("刷新名单")}
             OutlinedButton(onClick=onLogout,enabled=!busy&&!authBusy){Text(if(authBusy)"正在退出…"else"退出登录")}
         }
-        Text("超管：${user.label}",color=Muted)
-        Text("白名单成员可以读写这份本地账本。停用后，账号的下一次数据请求将被拒绝。初始超管受保护。",color=Muted,fontSize=13.sp)
+        Text(user.label,color=Muted)
+        Text("成员可查看和修改账单。停用后无法访问。",color=Muted,fontSize=13.sp)
         if(busy||authBusy)LinearProgressIndicator(Modifier.fillMaxWidth())
         authError?.let{Text(it,color=MaterialTheme.colors.error)}
         error?.let{Text(it,color=MaterialTheme.colors.error)}
@@ -175,7 +181,7 @@ private fun AccessManagement(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
                 }
                 OutlinedTextField(input.value,{input=input.copy(value=it)},Modifier.fillMaxWidth(),label={Text(input.kind.selectorLabel())},singleLine=true,enabled=!busy)
                 OutlinedTextField(input.note,{input=input.copy(note=it)},Modifier.fillMaxWidth(),label={Text("备注（可选）")},singleLine=true,enabled=!busy)
-                Text(if(input.kind=="subject")"按平台验证过的稳定账号 ID 匹配，请核对 ID。"else if(input.provider=="github")"用户名会经 GitHub 查询并绑定到稳定账号 ID。"else"邮箱邀请在首次验证登录时绑定账号 ID，仅支持 Google 已验证的 Gmail / Workspace 邮箱；其他 Google 账号请填写账号 ID。",fontSize=12.sp,color=Muted)
+                if(input.provider=="google"&&input.kind=="email") Text("支持 Gmail 或 Google Workspace 邮箱；其他邮箱请选择账号 ID。",fontSize=12.sp,color=Muted)
                 Button(onClick={action{api.addAccess(input);input=input.copy(value="",note="");reload();notice="账号已添加到白名单。"}},enabled=!busy&&!authBusy&&input.value.isNotBlank()){Text("添加到白名单")}
             }
         }
@@ -185,18 +191,29 @@ private fun AccessManagement(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
             Surface(shape=RoundedCornerShape(14.dp)){
                 Column(Modifier.fillMaxWidth().padding(20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                     Text("${entry.provider.displayProvider()} · ${entry.value}",fontWeight=FontWeight.Bold)
-                    Text(if(entry.role=="superadmin")"超管 · 受保护"else if(entry.enabled)"已启用"else"已停用",color=if(entry.enabled)Pine else Muted)
-                    Text(if(entry.subject.isBlank())"等待首次验证登录后绑定账号 ID"else"账号 ID：${entry.subject}",fontSize=12.sp,color=Muted)
-                    if(entry.note.isNotBlank())Text(entry.note,fontSize=13.sp)
+                    Text(if(entry.role=="superadmin")"超管"else if(entry.enabled)"已启用"else"已停用",color=if(entry.enabled)Pine else Muted)
+                    if(entry.subject.isBlank())Text("等待首次登录",fontSize=12.sp,color=Muted)
+                    TextButton(onClick={expandedEntry=if(expandedEntry==entry.id)null else entry.id}){Text(if(expandedEntry==entry.id)"收起"else"详情")}
+                    if(expandedEntry==entry.id){
+                        if(entry.subject.isNotBlank())Text("账号 ID：${entry.subject}",fontSize=12.sp,color=Muted)
+                        if(entry.note.isNotBlank())Text(entry.note,fontSize=13.sp)
+                    }
                     if(!entry.protected)OutlinedButton(onClick={action{api.setAccess(entry);reload();notice=if(entry.enabled)"账号已停用。"else"账号已启用。"}},enabled=!busy&&!authBusy){Text(if(entry.enabled)"停用访问"else"启用访问")}
                 }
             }
         }
         if(history.isNotEmpty()){
-            Text("最近的权限变更",fontSize=20.sp,fontWeight=FontWeight.Bold)
-            history.take(12).forEach{event->Text("${event.createdAt.take(19).replace('T',' ')} UTC · ${event.action.auditLabel()} · ${event.actor}",fontSize=12.sp,color=Muted)}
+            TextButton(onClick={showHistory=!showHistory}){Text(if(showHistory)"收起操作记录"else"操作记录")}
+            if(showHistory) history.take(12).forEach{event->
+                val target=entries.find{it.id==event.entryId}
+                val actor=if(event.actor=="bootstrap")"系统"else if(event.actor=="${user.provider}:${user.subject}")user.label else entries.find{"${it.provider}:${it.subject}"==event.actor}?.value ?: "管理员"
+                Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
+                    Text("${event.action.auditLabel()} · ${target?.provider?.displayProvider().orEmpty()} ${target?.value ?: "账号"}",fontSize=13.sp)
+                    Text("${event.createdAt.take(19).replace('T',' ')} UTC · $actor",fontSize=12.sp,color=Muted)
+                }
+            }
         }
     }
 }
-private fun String.selectorLabel()=when(this){"username"->"GitHub 用户名";"email"->"Google 邮箱";else->"稳定账号 ID"}
+private fun String.selectorLabel()=when(this){"username"->"GitHub 用户名";"email"->"Google 邮箱";else->"账号 ID"}
 private fun String.auditLabel()=when(this){"add"->"添加";"bind"->"绑定身份";"enable"->"启用";"disable"->"停用";else->this}

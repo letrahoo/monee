@@ -54,7 +54,7 @@ class LedgerApi {
             // Normalize only transport/ordinary exceptions; preserve fatal runtime errors.
             if (e !is Exception && !isPlatformNetworkFailure(e)) throw e
             connection = null
-            throw LedgerException("无法连接本地账本。请确认 Monee 本地服务正在运行，再点击重新连接。")
+            throw LedgerException("连接失败，请确认服务已启动后重试。")
         }
     }
 
