@@ -37,7 +37,7 @@ private val Line = Color(0xFFE4E9E1)
 private fun requestKey() = List(32) { "0123456789abcdef"[Random.nextInt(16)] }.joinToString("")
 
 @Composable
-internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorkspace:()->Unit,authBusy:Boolean,authError:String?,onLogout:()->Unit,onManage:()->Unit,onAccessLost:()->Unit) {
+internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorkspace:()->Unit,onAccount:()->Unit,authBusy:Boolean,authError:String?,onLogout:()->Unit,onManage:()->Unit,onAccessLost:()->Unit) {
     val scope = rememberCoroutineScope()
     var dashboard by remember { mutableStateOf<Dashboard?>(null) }
     var month by remember { mutableStateOf("") }
@@ -93,17 +93,13 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
             val compact = maxWidth < 760.dp
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(if(compact)20.dp else 40.dp),
                 verticalArrangement=Arrangement.spacedBy(22.dp)) {
-                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                    Image(painterResource(Res.drawable.logo),"Monee Logo",Modifier.size(56.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(ledger.name,fontSize=26.sp,fontWeight=FontWeight.Bold,color=Pine)
-                    }
-                }
+                BrandHeader()
+                Text(ledger.name,fontSize=22.sp,fontWeight=FontWeight.Bold,color=Pine)
                 Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
                     Text("${user.provider.displayProvider()} · ${user.label}${if(user.role=="superadmin")" · 超管"else""}",fontSize=12.sp,color=Muted)
                     Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-                        TextButton(onClick=onWorkspace,enabled=!working&&!authBusy){Text("账本与账号")}
+                        TextButton(onClick=onWorkspace,enabled=!working&&!authBusy){Text("我的账本")}
+                        TextButton(onClick=onAccount,enabled=!working&&!authBusy){Text("账号设置")}
                         if(user.role=="superadmin")TextButton(onClick=onManage,enabled=!working&&!authBusy){Text("管理白名单")}
                         OutlinedButton(onClick=onLogout,enabled=!working&&!authBusy){Text(if(authBusy)"正在退出…"else"退出登录")}
                     }

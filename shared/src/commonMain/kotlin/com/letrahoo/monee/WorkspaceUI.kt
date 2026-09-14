@@ -22,6 +22,7 @@ internal fun WorkspaceScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
  var ledgers by remember {mutableStateOf<List<LedgerInfo>>(emptyList())}
  var invites by remember {mutableStateOf<List<LedgerInvitation>>(emptyList())}
  var account by remember {mutableStateOf<AccountState?>(null)}
+ var initialSelectionDone by remember {mutableStateOf(false)}
  var selected by remember {mutableStateOf<String?>(null)}
  var showAccount by remember {mutableStateOf(false)}
  var manage by remember {mutableStateOf<LedgerInfo?>(null)}
@@ -42,6 +43,10 @@ internal fun WorkspaceScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
    try{
     val list=api.ledgers().ledgers
     ledgers=list
+    if(!initialSelectionDone){
+     if(list.size==1)selected=list.single().id
+     initialSelectionDone=true
+    }
     if(selected!=null&&list.none{it.id==selected})selected=null
     invites=api.invitations().invitations
     account=api.account();error=null
@@ -52,13 +57,14 @@ internal fun WorkspaceScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
  fun act(action:suspend()->Unit){scope.launch{busy=true;error=null;notice=null;try{action();refresh++}catch(e:CancellationException){throw e}catch(e:Exception){if(e is LedgerException&&e.accessLost)onAccessLost()else error=e.message}finally{busy=false}}}
  val active=ledgers.find{it.id==selected}
  if(active!=null){
-  key(active.id,active.role){LedgerScreen(api,user,active,onWorkspace={selected=null},authBusy=authBusy,authError=authError,onLogout=onLogout,onManage=onManage,onAccessLost=onAccessLost)}
+  key(active.id,active.role){LedgerScreen(api,user,active,onWorkspace={selected=null;showAccount=false},onAccount={selected=null;showAccount=true},authBusy=authBusy,authError=authError,onLogout=onLogout,onManage=onManage,onAccessLost=onAccessLost)}
   return
  }
  Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
-  Text("我的账本",fontSize=28.sp,color=Pine)
+  BrandHeader()
+  Text(if(showAccount)"账号设置"else"我的账本",fontSize=28.sp,color=Pine)
   Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
-   TextButton(onClick={showAccount=!showAccount},enabled=!busy){Text("账号设置")}
+   TextButton(onClick={showAccount=!showAccount},enabled=!busy){Text(if(showAccount)"我的账本"else"账号设置")}
    if(user.role=="superadmin")TextButton(onClick=onManage,enabled=!busy){Text("系统准入")}
    TextButton(onClick=onLogout,enabled=!busy&&!authBusy){Text("退出登录")}
   }
@@ -82,7 +88,7 @@ internal fun WorkspaceScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
     Row{TextButton(onClick={act{api.unlink(i);unlinkConfirm=null}},enabled=!busy){Text("确认解绑")};TextButton(onClick={unlinkConfirm=null}){Text("取消")}}
    }
    Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
-    listOf("github","google").forEach{provider->OutlinedButton(onClick={act{api.login(provider,"link");notice="请完成身份验证，再返回查看绑定结果"}},enabled=!busy){Text("绑定 ${provider.displayProvider()}")}}
+    listOf("github","google").filter{provider->account!=null&&account!!.identities.none{it.provider==provider}}.forEach{provider->OutlinedButton(onClick={act{api.login(provider,"link");notice="请完成身份验证，再返回查看绑定结果"}},enabled=!busy){Text("绑定 ${provider.displayProvider()}")}}
    }
    account?.pendingMerges?.forEach{merge->
     Text("${merge.provider.displayProvider()} · ${merge.username.ifBlank{merge.name}} 已注册为另一个账号。")
@@ -94,6 +100,7 @@ internal fun WorkspaceScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
    }
    Divider()
   }
+  if(!showAccount){
   invites.forEach{i->
    Text("${i.invitedBy} 邀请你加入「${i.ledgerName}」· ${i.role.ledgerRole()}")
    Row{Button(onClick={act{api.respond(i.id,true)}},enabled=!busy){Text("接受")};TextButton(onClick={act{api.respond(i.id,false)}},enabled=!busy){Text("拒绝")}}
@@ -107,7 +114,8 @@ internal fun WorkspaceScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
   }
   OutlinedTextField(name,{name=it},label={Text("新账本名称")},singleLine=true)
   Button(onClick={act{val l=api.newLedger(name);ledgers=api.ledgers().ledgers;selected=l.id;name=""}},enabled=!busy&&name.isNotBlank()){Text("创建账本")}
-  manage?.let{l->
+  }
+  manage?.takeIf{!showAccount}?.let{l->
    Divider();Text("${l.name} · 成员",fontSize=20.sp)
    members.forEach{m->
     Text("${m.name} · ${m.role.ledgerRole()}")
