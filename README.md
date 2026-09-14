@@ -82,3 +82,7 @@ Web 需要支持 WebAssembly GC 的现代浏览器。完整中文字体随应用
 ## License
 
 [MIT](LICENSE)
+
+## 旧版历史数据
+
+已提供 [ai-financial 差异分析与迁移适配](docs/migration/ai-financial.md)：Go 生成私有消费候选 CSV、核实清单与完整源快照，再通过现有授权导入流程入账。退款、还款、转账等不强制转成普通收支；生成迁移包不代表正式账本已更新。
