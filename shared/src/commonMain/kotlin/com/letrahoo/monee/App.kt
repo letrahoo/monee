@@ -89,19 +89,16 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
         colors = lightColors(primary=Pine,secondary=Color(0xFFE4B940),background=Paper,surface=Color.White,onBackground=Ink,onSurface=Ink),
         typography = Typography(defaultFontFamily=FontFamily(Font(Res.font.noto_sans_sc))),
     ) {
-        BoxWithConstraints(Modifier.fillMaxSize().background(Paper)) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(Paper),contentAlignment=Alignment.TopCenter) {
             val compact = maxWidth < 760.dp
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(if(compact)20.dp else 40.dp),
+            Column(Modifier.widthIn(max=1200.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(if(compact)20.dp else 40.dp),
                 verticalArrangement=Arrangement.spacedBy(22.dp)) {
                 BrandHeader()
                 Text(ledger.name,fontSize=22.sp,fontWeight=FontWeight.Bold,color=Pine)
                 Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
-                    Text("${user.provider.displayProvider()} · ${user.label}${if(user.role=="superadmin")" · 超管"else""}",fontSize=12.sp,color=Muted)
-                    Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                    FlowRow(horizontalArrangement=Arrangement.spacedBy(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
                         TextButton(onClick=onWorkspace,enabled=!working&&!authBusy){Text("我的账本")}
                         TextButton(onClick=onAccount,enabled=!working&&!authBusy){Text("账号设置")}
-                        if(user.role=="superadmin")TextButton(onClick=onManage,enabled=!working&&!authBusy){Text("管理白名单")}
-                        OutlinedButton(onClick=onLogout,enabled=!working&&!authBusy){Text(if(authBusy)"正在退出…"else"退出登录")}
                     }
                     authError?.let{Text(it,color=MaterialTheme.colors.error)}
                 }
@@ -113,7 +110,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                     }
                 }
                 if (loading || working) LinearProgressIndicator(Modifier.fillMaxWidth(),color=Pine)
-                Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                FlowRow(horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
                     Button(onClick={panel=if(panel=="import")""else"import";actionError=null},enabled=ledger.role!="viewer"&&dashboard!=null&&!working&&connectionError==null) { Text("导入账单") }
                     OutlinedButton(onClick={panel=if(panel=="manual")""else"manual";if(input.date.isEmpty())input=input.copy(date=dashboard?.today.orEmpty());actionError=null},enabled=ledger.role!="viewer"&&dashboard!=null&&!working&&connectionError==null) { Text("记一笔") }
                     TextButton(onClick={refresh++},enabled=!working) { Text("刷新") }
@@ -122,6 +119,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                 notice?.let { Text(it,color=Pine) }
                 actionError?.let { Text(it,color=MaterialTheme.colors.error) }
                 if(panel=="import") {
+                    TextButton(onClick={panel=""},enabled=!working){Text("收起导入")}
                     ImportPanel(csv,filename,preview,confirmedSimilar,working,
                         onCSVChange=::changeCSV,
                         onPick={runAction { chooseCSV()?.let { filename=it.name;changeCSV(it.text) } }},
@@ -132,6 +130,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                     )
                 }
                 if(panel=="manual") {
+                    TextButton(onClick={panel=""},enabled=!working){Text("收起记账")}
                     ManualPanel(input,working,onChange={input=it;createKey=requestKey()},onSave={runAction {
                         val created=api.create(ledger.id,input,createKey)
                         input=TransactionInput(date=dashboard?.today.orEmpty());createKey=requestKey()
@@ -179,7 +178,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                             trailingIcon={if(query.isNotEmpty())TextButton(onClick={query="";page=1}){Text("清除")}})
                         Card(shape=RoundedCornerShape(16.dp),elevation=0.dp,modifier=Modifier.fillMaxWidth()) {
                             Column {
-                                if(data.transactions.isEmpty()) Text(if(query.isBlank())"暂无账单，导入或记一笔。"else"没有找到相关账单",Modifier.padding(24.dp),color=Muted)
+                                if(data.transactions.isEmpty()) Text(if(query.isBlank())if(ledger.role=="viewer")"本月暂无账单。"else"本月暂无账单，导入或记一笔。"else"没有找到相关账单",Modifier.padding(24.dp),color=Muted)
                                 data.transactions.forEachIndexed { index,item ->
                                     TextButton(onClick={selectedID=if(selectedID==item.id)null else item.id},modifier=Modifier.fillMaxWidth(),contentPadding=PaddingValues(18.dp)) {
                                         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
@@ -188,7 +187,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                                                 Text(item.merchant,fontWeight=FontWeight.Medium,color=Ink,maxLines=1,overflow=TextOverflow.Ellipsis)
                                                 Text("${item.category} · ${item.source}${if(compact)" · ${item.date}"else""}",fontSize=12.sp,color=Muted)
                                             }
-                                            Text(formatMoney(item.amountMinor.toLong()),color=if(item.type=="income")Pine else Ink,fontWeight=FontWeight.SemiBold)
+                                            Text((if(item.type=="income")"+"else"−")+formatMoney(item.amountMinor.toLong()),color=if(item.type=="income")Pine else Ink,fontWeight=FontWeight.SemiBold)
                                         }
                                     }
                                     // Inline details avoid the Compose Wasm popup accessibility issue CMP-10623.
@@ -205,7 +204,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                         }
                         if(data.filteredCount>data.pageSize) Row(horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically) {
                             OutlinedButton(onClick={page--},enabled=page>1&&!loading){Text("上一页")}
-                            Text("第 ${data.page} 页")
+                            Text("${data.page} / ${(data.filteredCount+data.pageSize-1)/data.pageSize} 页")
                             OutlinedButton(onClick={page++},enabled=data.page*data.pageSize<data.filteredCount&&!loading){Text("下一页")}
                         }
                         if(query.isNotBlank()) Text("搜索仅筛选明细，收支统计不变。",color=Muted,fontSize=12.sp)

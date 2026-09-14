@@ -155,7 +155,7 @@ private fun AccessManagement(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
         busy=true
         try{reload()}catch(e:CancellationException){throw e}catch(e:Exception){if(e is LedgerException&&e.accessLost)onAccessLost()else error=e.message}finally{busy=false}
     }
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colors.background).verticalScroll(rememberScrollState()).padding(24.dp),verticalArrangement=Arrangement.spacedBy(18.dp)){
+    SettingsPage{
         BrandHeader()
         FlowRow(horizontalArrangement=Arrangement.spacedBy(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             Text("访问白名单",fontSize=28.sp,fontWeight=FontWeight.Bold,color=Pine)
