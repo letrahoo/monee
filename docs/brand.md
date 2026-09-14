@@ -24,9 +24,18 @@
 
 仓库中的文件与提供的原图完全一致，未裁切、改色、重绘或重新压缩。
 
+### 应用图标
+
+[`assets/brand/app-icon.png`](../assets/brand/app-icon.png) 是 1254 × 1254 的 RGBA 派生图，供 Mac 安装包和 Web / Mac 页面使用。圆角底板之外的白色画布及烘焙阴影已移除，轮廓使用抗锯齿透明边缘；绿色 M、金币、奶油色底板内部的原始 RGB 像素保持不变。
+
+派生图由 `python3 scripts/prepare-app-icon.py` 确定性生成（需要 Pillow），脚本只写入透明通道，不重绘图案。轮廓检测针对当前原图校准，源文件哈希变化时要求重新校准和目视检查。普通应用构建直接使用已提交的派生 PNG，不依赖 Python 或在线图像服务。
+
+已核对四角透明度为 0、RGB 像素与原图一致，并检查深浅背景下的轮廓。原始 `logo.png` 继续作为设计稿保留。
+
 ## 使用约定
 
-- README、产品介绍和界面展示优先引用这一份品牌资源，保持等比例缩放。
-- 当前资源是带背景的完整栅格图，不视为透明底标志或 SVG 源文件。
-- 后续生成 Web favicon、macOS、iOS 和 Android 图标时，分别适配各平台的尺寸和遮罩要求，派生文件单独存放，保留原图。
+- README 和应用界面引用透明边缘派生图 `app-icon.png`，保持等比例缩放；原始设计稿引用 `logo.png`。
+- 原始设计稿带完整背景；应用派生图保留不透明圆角底板，只有底板之外透明，不视为裸 M 标志或 SVG 源文件。
+- macOS 应用图标已接入打包配置：构建时由 `scripts/generate-macos-icon.sh` 从 `app-icon.png` 等比例生成 16–1024 px 图标并封装为 ICNS，保存在 `desktopApp/build/generated/appIcon/Monee.icns`；该文件也用于 Gradle 桌面运行的 Dock 图标。透明通道随缩放保留，ICNS 和中间尺寸文件不提交。
+- Web favicon、iOS 和 Android 图标后续分别适配各平台尺寸和遮罩要求，派生文件单独存放，保留原图。
 - 当前未确定独立字体、精确品牌色值、深色版或单色版规范；后续 UI 设计时补充。

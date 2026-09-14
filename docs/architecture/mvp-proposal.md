@@ -1,31 +1,34 @@
 # Monee 产品与代码架构提案
 
-状态：讨论稿，尚未形成已实施的架构。更新：2026-09-14。
+状态：KMP 客户端选型已确定；业务架构为待实施提案。更新：2026-09-14。
 
-对应需求：[MVP 产品讨论稿](../product/mvp-discussion.md)。初始仓库基线 `b3ebbb2` 仅包含 README 和 MIT License；当前已补充品牌资源与设计文档，尚无业务代码需要迁移。
+对应需求：[MVP 产品讨论稿](../product/mvp-discussion.md)。初始仓库基线 `b3ebbb2` 仅包含 README 和 MIT License；当前已补充品牌资源与设计文档，已开始建立 KMP 体验验证工程，正式账本业务尚未实现。
 
 品牌资源统一保存在 `assets/brand/`，应用图标在各端工程建立后派生；名称与 Slogan 遵循[品牌说明](../brand.md)。
 
-## 跨端选择建议
+## 已确定的技术栈
 
-推荐 React + TypeScript 的响应式 Web，Mac 使用 Tauri 2 容器。所有账本规则由 Go 服务实现；Tauri 的 Rust 层仅处理平台能力与必要的进程管理。浏览器使用常规 Web 构建，UI 不直接依赖 Tauri API。
+2026-09-14 确定客户端采用 **Kotlin Multiplatform（KMP）+ Compose Multiplatform**，共享界面、交互状态、客户端模型和 API 访问。服务端继续采用 **Golang**；首版本地存储采用 **SQLite**，后续云端数据库以 PostgreSQL 为候选。
 
-| 方案 | 适合本项目的方面 | 取舍 |
+| 平台 | 实现方式 | 当前阶段 |
 | --- | --- | --- |
-| React Web + Tauri 2 | Web/Mac 共用 UI；Tauri 同时提供移动平台路径 | 移动端需单独验证文件、键盘、后台和快捷指令等原生集成，不能认为打包即完成 |
-| KMP + Compose Multiplatform | 可共享 Kotlin 业务与 UI，适合投入移动端平台能力 | 当前官方文档中 Compose Web 为 Beta；Web 优先时需验证表格、输入、图表及浏览器兼容性 |
-| Taro | 官方支持 H5、React Native 和小程序，适合小程序也是目标的项目 | 当前没有小程序需求；Mac 还需桌面容器，收益暂不突出 |
+| Web | Kotlin/Wasm + Compose Multiplatform | 首轮验证入口 |
+| Mac App | Kotlin/JVM + Compose Desktop | 首轮验证入口，不使用 WebView 容器 |
+| Android | KMP 共享模块 + Compose 平台入口 | 后续补齐 |
+| iOS | KMP 共享模块 + Compose / UIKit 入口 | 后续补齐 |
 
-Taro 与 Tauri 是不同项目。上述选择是基于 Web/Mac 优先的建议，不代表用户已经确认框架。
+Web 与 Mac 共享 `shared/src/commonMain` 的 UI 和交互逻辑，分别编译为 Wasm 与 JVM 程序。平台专属的文件选择、钥匙串、通知、邮件凭据和后台任务放在平台实现中，不渗入共享界面。
 
-移动端暂保留 Tauri 2 复用前端的方案；在正式投入前做一个包含快速记账、分享文件和原生捕获入口的验证。若原生交互需要调整，保留 API 与数据契约，避免为了 UI 框架重写账本。
+Go 仍是账本、去重、退款、还款与统计口径的唯一生产实现；KMP 负责客户端展示与交互，不重复实现服务端会计规则。降低长期开发成本是此次选型目标，实际收益需通过各端迭代验证。
+
+第一轮使用同一份合成数据验证中文、金额、筛选、详情、图片资源和响应式布局。Compose Web 的浏览器能力、包体与加载性能需实测，平台支持以验证记录为准。
 
 ## 整体结构
 
 ```mermaid
 flowchart TB
-    WEB[浏览器 Web] --> API[Go 应用服务]
-    MAC[Mac App / 共用 Web UI] --> API
+    WEB[Web / Kotlin Wasm] --> API[Go 应用服务]
+    MAC[Mac / Compose Desktop] --> API
     MOBILE[iOS / Android 后续接入] --> API
     FILE[支付宝 / 微信 / 银行 / 白条文件] --> INGEST[导入解析与标准化]
     API --> INGEST
@@ -59,9 +62,9 @@ flowchart TB
 | Mac 本机 | Go 服务 + SQLite；服务提供 Web 静态资源及 API；Mac 壳使用相同服务和数据库路径 | 一个 Go 进程拥有数据库访问；本机浏览器与 Mac App 共用同一个实例，不各自创建一份账本 |
 | 用户自有服务器 | Go 服务 + PostgreSQL；Web 和 Mac 通过 HTTPS 使用同一 API | 首版即有单用户登录、会话管理与备份；跨设备在线共享不等于离线自动同步 |
 
-本地方案如随 Mac 分发 Go 服务，可使用 Tauri sidecar，但需要完成单实例锁、发现已有实例、启动失败处理、架构打包、退出生命周期与更新测试。不能直接把临时开发服务当作桌面交付。
+Mac 通过 Compose Desktop 的原生分发打包。Go 服务可作为附带可执行程序，由桌面平台层管理；需要完成单实例锁、发现已有实例、启动失败处理、架构打包、退出生命周期与更新测试。第一轮 UI 验证暂不启动 Go 服务。
 
-本地仅绑定回环地址，API 仍有访问凭据与来源校验；“在本机运行”不等于允许任意网页读取账单。Web 页面由本地 Go 服务同源提供，浏览器访问该地址。Mac 容器访问同一个服务；启动发现、凭据交接和受信来源应一起实现。数据库放在固定的应用数据目录，不在仓库、浏览器缓存或安装包内。
+本地仅绑定回环地址，API 仍有访问凭据与来源校验；“在本机运行”不等于允许任意网页读取账单。Web 页面由本地 Go 服务同源提供，浏览器访问该地址。Mac JVM 客户端访问同一个服务；启动发现、凭据交接和受信来源应一起实现。数据库放在固定的应用数据目录，不在仓库、浏览器缓存或安装包内。
 
 未来服务端模式不以隐藏 URL 代替登录。首版只实现 SQLite；通过领域模型、迁移和契约保持演进能力，不同时维护两套数据库实现。
 
@@ -129,12 +132,15 @@ flowchart TB
 ## 建议目录
 
 ```text
-apps/
-  web/                    # React / TypeScript，按 imports、ledger、reports、accounts 分功能
-  desktop/                # Tauri Mac 壳，复用 Web 构建
-packages/
-  api-client/             # 根据 API 契约生成客户端类型及请求
-  platform/               # 浏览器/桌面文件、打开链接等能力适配
+shared/                   # KMP：共享 Compose UI、客户端模型、状态和 API 访问
+  src/commonMain/
+  src/commonTest/
+  src/jvmMain/            # 按需补充桌面平台能力
+  src/wasmJsMain/         # 按需补充浏览器平台能力
+desktopApp/              # Compose Desktop / macOS 入口与打包
+webApp/                  # Kotlin/Wasm 浏览器入口
+androidApp/              # 移动阶段建立
+iosApp/                  # 移动阶段建立
 server/
   cmd/monee/              # 服务入口
   internal/
@@ -186,9 +192,8 @@ docs/
 
 ## 选型资料
 
-- [Tauri 官方](https://tauri.app/)：Web 前端及桌面/移动平台支持。
-- [Tauri sidecar](https://tauri.app/develop/sidecar/)：外部可执行程序随应用分发。
+- [KMP 官方项目结构](https://kotlinlang.org/docs/multiplatform/compose-multiplatform-create-first-app.html)：共享模块与各端入口。
+- [Compose 兼容性](https://kotlinlang.org/docs/multiplatform/compose-compatibility-and-versioning.html)：编译器、JDK 和平台要求。
 - [Kotlin 官方平台稳定性](https://kotlinlang.org/docs/multiplatform/supported-platforms.html)：KMP 核心与 Compose UI 稳定性分别判断；当前页面列出 Compose Web 为 Beta。
-- [Taro 官方介绍](https://taro-docs.jd.com/taro/docs)：H5、React Native 与小程序方向。
 
 以上为 2026-09-14 查询结果。实现时锁定依赖版本；平台集成能力以目标系统与实际设备验证为准。

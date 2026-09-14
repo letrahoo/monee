@@ -1,0 +1,14 @@
+.gradle/
+.kotlin/
+.local/
+**/build/
+.idea/
+*.iml
+.DS_Store
+local.properties
+node_modules/
+kotlin-js-store/
+.env
+*.db
+*.db-shm
+*.db-wal
