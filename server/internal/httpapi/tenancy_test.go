@@ -75,6 +75,7 @@ func TestLedgerIsolationInvitationsAndRevocation(t *testing.T) {
 	call(1, "", "POST", "/api/v1/invitations/"+pending[0].ID+"/respond", `{"accept":true}`, 200)
 	call(1, first.ID, "GET", "/api/v1/dashboard?month=2026-01", "", 200)
 	call(1, first.ID, "POST", "/api/v1/transactions", input, 403)
+	call(1, first.ID, "GET", "/api/v1/imports", "", 200)
 	call(1, first.ID, "POST", "/api/v1/imports/preview", `{"filename":"a.csv","csv":"a"}`, 403)
 	call(1, first.ID, "GET", "/api/v1/ledgers/"+first.ID+"/members", "", 403)
 	owner, err := data.Scoped(ids[0], first.ID)
@@ -99,6 +100,15 @@ func TestLedgerIsolationInvitationsAndRevocation(t *testing.T) {
 	call(1, first.ID, "POST", "/api/v1/imports/"+preview.ID+"/commit", string(commit), 403)
 	call(1, first.ID, "GET", "/api/v1/dashboard", "", 403)
 	call(0, first.ID, "POST", "/api/v1/imports/"+preview.ID+"/commit", string(commit), 200)
+	call(0, first.ID, "GET", "/api/v1/imports", "", 200)
+	call(0, first.ID, "GET", "/api/v1/imports/"+preview.ID, "", 200)
+	call(2, second.ID, "GET", "/api/v1/imports/"+preview.ID, "", 404)
+	call(1, first.ID, "GET", "/api/v1/imports", "", 403)
+	call(1, first.ID, "GET", "/api/v1/imports/"+preview.ID, "", 403)
+	call(0, second.ID, "GET", "/api/v1/imports", "", 403)
+	call(0, first.ID, "GET", "/api/v1/imports?page=invalid", "", 422)
+	call(0, first.ID, "GET", "/api/v1/imports?page=-1", "", 422)
+
 	var d ledger.Dashboard
 	raw = call(2, second.ID, "GET", "/api/v1/dashboard?month=2026-01", "", 200)
 	if err = json.Unmarshal([]byte(raw), &d); err != nil || d.TotalCount != 1 {

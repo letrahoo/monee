@@ -2,90 +2,36 @@ package ledger
 
 import (
 	"database/sql"
-	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
-	"strings"
-	"unicode/utf8"
+
+	"github.com/letrahoo/monee/server/internal/ingestion"
 )
 
-var headers = []string{"date", "type", "amount", "currency", "merchant", "category", "source", "account", "external_id", "note"}
+// Extraction is shared by source adapters; financial normalization remains here.
+var headers = ingestion.StandardColumns()
 
 func parseCSV(text string) ([]PreviewRow, []string) {
+	document := ingestion.ParseStandardCSV(text)
 	result := []PreviewRow{}
 	issues := []string{}
-	if len(text) > MaxCSVBytes || !utf8.ValidString(text) || strings.ContainsRune(text, '\uFFFD') {
-		return result, []string{"请使用不超过 2 MiB 的 UTF-8 CSV 文件"}
+	for _, issue := range document.Issues {
+		issues = append(issues, issue.Message)
 	}
-	r := csv.NewReader(strings.NewReader(strings.TrimPrefix(text, "\uFEFF")))
-	r.FieldsPerRecord = -1
-	head, err := r.Read()
-	if err != nil {
-		return result, []string{"文件为空或 CSV 表头无效"}
-	}
-	positions := map[string]int{}
-	for index, value := range head {
-		value = strings.TrimSpace(value)
-		known := false
-		for _, h := range headers {
-			if h == value {
-				known = true
-			}
-		}
-		if !known {
-			return result, []string{"不支持的表头：" + value + "。请使用标准 CSV 模板"}
-		}
-		if _, exists := positions[value]; exists {
-			return result, []string{"重复的表头：" + value}
-		}
-		positions[value] = index
-	}
-	for _, h := range []string{"date", "type", "amount", "currency", "merchant", "source"} {
-		if _, ok := positions[h]; !ok {
-			return result, []string{"缺少必要表头：" + h}
-		}
-	}
-	for count := 0; ; count++ {
-		fields, e := r.Read()
-		if e == io.EOF {
-			break
-		}
-		if count >= MaxRows {
-			return result, []string{"单次最多导入 1000 行，请拆分文件"}
-		}
-		if e != nil {
-			return result, []string{"CSV 格式错误：" + e.Error()}
-		}
-		line, _ := r.FieldPos(0)
-		if len(fields) != len(head) {
-			issues = append(issues, fmt.Sprintf("第 %d 行：列数与表头不一致", line))
-			if len(issues) >= 20 {
-				break
-			}
-			continue
-		}
-		get := func(name string) string {
-			if index, ok := positions[name]; ok {
-				return fields[index]
-			}
-			return ""
-		}
-		t, e := normalize(Input{get("date"), get("type"), get("amount"), get("currency"), get("merchant"), get("category"), get("source"), get("account"), get("external_id"), get("note")})
-		if e != nil {
-			issues = append(issues, fmt.Sprintf("第 %d 行：%s", line, e))
+	for _, row := range document.Records {
+		f := row.Fields
+		t, err := normalize(Input{Date: f.Date, Type: f.Type, Amount: f.Amount, Currency: f.Currency, Merchant: f.Merchant, Category: f.Category, Source: f.Source, Account: f.Account, ExternalID: f.ExternalID, Note: f.Note})
+		if err != nil {
+			issues = append(issues, fmt.Sprintf("第 %d 行：%s", row.Line, err))
 			if len(issues) >= 20 {
 				break
 			}
 			continue
 		}
 		t.ID = newID()
-		result = append(result, PreviewRow{Line: line, Record: t, Status: "new"})
-	}
-	if len(result) == 0 && len(issues) == 0 {
-		issues = append(issues, "CSV 中没有账单记录")
+		result = append(result, PreviewRow{Line: row.Line, Record: t, Status: "new"})
 	}
 	return result, issues
 }
