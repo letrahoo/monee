@@ -2,7 +2,7 @@
 openapi: 3.1.0
 info:
   title: Monee Local Ledger API
-  version: 1.2.0
+  version: 1.3.0
   description: Unified product users with explicitly linked Google/GitHub identities.
     System admission is separate from ledger ownership/editor/viewer memberships.
     All data access is enforced by Go. Feishu is reserved for a future provider adapter.
@@ -128,6 +128,75 @@ paths:
                 "$ref": "#/components/schemas/Transaction"
         default:
           "$ref": "#/components/responses/Error"
+  "/api/v1/imports":
+    get:
+      operationId: listImports
+      description: Saved previews and committed batches in the selected ledger. Readable by ledger viewers. Invalid files rejected before saving do not appear here.
+      parameters:
+      - in: header
+        name: X-Monee-Ledger
+        schema: {type: string}
+        description: Explicit ledger selection; omission allowed only for a single membership.
+      - in: query
+        name: page
+        schema: {type: integer, minimum: 1, maximum: 1000000, default: 1}
+      responses:
+        '200':
+          description: Newest first, with deterministic ID ordering for equal timestamps. Pages past the end return an empty list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [imports, page, pageSize, totalCount]
+                properties:
+                  imports:
+                    type: array
+                    maxItems: 50
+                    items: {$ref: '#/components/schemas/ImportSummary'}
+                  page: {type: integer}
+                  pageSize: {type: integer, const: 50}
+                  totalCount: {type: integer, minimum: 0}
+        default:
+          $ref: '#/components/responses/Error'
+  "/api/v1/imports/{id}":
+    get:
+      operationId: getImport
+      description: Saved preview and committed normalized source evidence. Does not expose the raw file. An ID from another ledger returns 404.
+      parameters:
+      - in: header
+        name: X-Monee-Ledger
+        schema: {type: string}
+        description: Explicit ledger selection; membership is verified on every request.
+      - in: path
+        name: id
+        required: true
+        schema: {type: string}
+      responses:
+        '200':
+          description: Import details. Evidence is empty until committed. Stored normalized records are import-time snapshots, not current edited transactions.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/ImportSummary'
+                - type: object
+                  required: [preview, evidence]
+                  properties:
+                    preview: {$ref: '#/components/schemas/ImportPreview'}
+                    evidence:
+                      type: array
+                      maxItems: 1000
+                      items:
+                        type: object
+                        required: [id, line, transactionId, disposition, record]
+                        properties:
+                          id: {type: string}
+                          line: {type: integer, minimum: 2}
+                          transactionId: {type: string}
+                          disposition: {type: string, enum: [added, duplicate]}
+                          record: {$ref: '#/components/schemas/Transaction'}
+        default:
+          $ref: '#/components/responses/Error'
   "/api/v1/imports/preview":
     post:
       operationId: previewImport
@@ -1294,6 +1363,25 @@ components:
           maxItems: 50
           items:
             "$ref": "#/components/schemas/Transaction"
+    ImportSummary:
+      type: object
+      required: [id, filename, parserVersion, createdAt, committedAt, result]
+      properties:
+        id: {type: string}
+        filename: {type: string}
+        parserVersion: {type: integer}
+        createdAt: {type: string, format: date-time}
+        committedAt: {type: [string, 'null'], format: date-time}
+        result:
+          oneOf:
+          - type: 'null'
+          - type: object
+            required: [importId, added, skipped, month]
+            properties:
+              importId: {type: string}
+              added: {type: integer, minimum: 0}
+              skipped: {type: integer, minimum: 0}
+              month: {type: string}
     ImportPreview:
       type: object
       required:

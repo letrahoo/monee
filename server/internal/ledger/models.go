@@ -10,10 +10,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/letrahoo/monee/server/internal/ingestion"
 )
 
-const MaxCSVBytes = 2 << 20
-const MaxRows = 1000
+const MaxCSVBytes = ingestion.MaxBytes
+const MaxRows = ingestion.MaxRows
 const PageSize = 50
 
 type Problem struct{ Code, Message string }

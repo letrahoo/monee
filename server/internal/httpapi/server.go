@@ -72,6 +72,7 @@ func decode(w http.ResponseWriter, r *http.Request, target any) bool {
 func (a API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	a.registerLedgers(mux)
+	a.registerImports(mux)
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"status": "ok", "apiVersion": 1, "schemaVersion": 2})
 	})
