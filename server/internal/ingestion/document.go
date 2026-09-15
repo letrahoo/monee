@@ -53,6 +53,9 @@ type Record struct {
 	Line        int          `json:"line"`
 	Fields      Fields       `json:"fields"`
 	Identifiers []Identifier `json:"identifiers"`
+	// Raw preserves native column names and values, including status, payment
+	// method and unknown columns. It is private evidence, never model input.
+	Raw map[string]string `json:"raw,omitempty"`
 }
 
 type Issue struct {
@@ -71,6 +74,7 @@ type Document struct {
 	ParserVersion int      `json:"parserVersion"`
 	Records       []Record `json:"records"`
 	Issues        []Issue  `json:"issues"`
+	Encoding      string   `json:"encoding,omitempty"`
 }
 
 func digest(data []byte) string {
