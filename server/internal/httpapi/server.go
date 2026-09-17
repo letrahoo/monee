@@ -15,9 +15,11 @@ import (
 
 	"github.com/letrahoo/monee/server/internal/auth"
 	"github.com/letrahoo/monee/server/internal/ledger"
+	"github.com/letrahoo/monee/server/internal/redaction"
 )
 
 type API struct {
+	Redaction       *redaction.Projector
 	Store           *ledger.Store
 	Host, WebDir    string
 	Auth            *auth.Service
@@ -37,6 +39,9 @@ func fail(w http.ResponseWriter, err error) {
 	if errors.As(err, &p) {
 		code, message = p.Code, p.Message
 		status = 422
+		if code == "redaction_unavailable" {
+			status = 503
+		}
 		if code == "conflict" {
 			status = 409
 		}
@@ -75,6 +80,7 @@ func (a API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	a.registerLedgers(mux)
 	a.registerImports(mux)
+	a.registerRedactionPreview(mux)
 	a.registerAnnotations(mux)
 	a.registerCorrections(mux)
 	a.registerImportUndo(mux)

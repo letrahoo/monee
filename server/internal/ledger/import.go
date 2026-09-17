@@ -57,7 +57,7 @@ func (s *Store) preview(filename, text string, native *ingestion.Document) (Prev
 		p.Rows, p.Errors = parseCSV(text)
 	} else {
 		p.Format = "alipay"
-		if native.Parser == "wechat-xlsx" {
+		if native.Parser == "wechat-xlsx" || native.Parser == "wechat-csv" {
 			p.Format = "wechat"
 		}
 		p.SourceDocument = native

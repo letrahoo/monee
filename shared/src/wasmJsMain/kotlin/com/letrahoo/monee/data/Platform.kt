@@ -23,7 +23,7 @@ internal actual suspend fun discoverConnection(client: HttpClient): Connection =
 private fun selectCSV(native: Boolean, wechat: Boolean): Promise<JsString> = js("""
 new Promise((resolve, reject) => {
     const input = document.createElement('input');
-    input.type = 'file'; input.accept = wechat ? '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : '.csv,text/csv'; input.style.display = 'none';
+    input.type = 'file'; input.accept = wechat ? '.csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : '.csv,text/csv'; input.style.display = 'none';
     document.body.appendChild(input);
     const finish = value => { input.remove(); resolve(JSON.stringify(value)); };
     input.oncancel = () => finish({name:'', text:'',contentBase64:''});

@@ -66,6 +66,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
     var nativeContent by remember { mutableStateOf("") }
     var sourceAccount by remember { mutableStateOf("我的支付宝") }
     var preview by remember { mutableStateOf<ImportPreview?>(null) }
+    var redaction by remember { mutableStateOf<RedactionPreview?>(null) }
     var confirmedSimilar by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf(TransactionInput()) }
     var createKey by remember { mutableStateOf(requestKey()) }
@@ -137,19 +138,25 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                     TextButton(onClick={panel=""},enabled=!working){Text("收起导入")}
                     ImportPanel(csv,filename,preview,confirmedSimilar,working||ledger.role=="viewer",
                         format=importFormat,hasNativeFile=nativeContent.isNotEmpty(),sourceAccount=sourceAccount,
-                        onMode={importFormat=it;sourceAccount=if(it=="wechat")"我的微信"else"我的支付宝";preview=null;csv="";nativeContent="";filename="import.csv";confirmedSimilar=false},
-                        onAccount={sourceAccount=it;preview=null;confirmedSimilar=false},
+                        onMode={redaction=null;importFormat=it;sourceAccount=if(it=="wechat")"我的微信"else"我的支付宝";preview=null;csv="";nativeContent="";filename="import.csv";confirmedSimilar=false},
+                        onAccount={redaction=null;sourceAccount=it;preview=null;confirmedSimilar=false},
                         onCSVChange=::changeCSV,
                         onPick={runAction {
-                            if(nativeImport) chooseNativeBill(importFormat)?.let { filename=it.name;nativeContent=it.contentBase64;preview=null;confirmedSimilar=false }
+                            if(nativeImport) chooseNativeBill(importFormat)?.let { filename=it.name;nativeContent=it.contentBase64;preview=null;redaction=null;confirmedSimilar=false }
                             else chooseCSV()?.let { filename=it.name;changeCSV(it.text) }
                         }},
                         onTemplate={runAction { filename="import.csv";changeCSV(api.template(false)) }},
-                        onPreview={runAction { preview=if(nativeImport)api.previewNative(ledger.id,importFormat,filename,nativeContent,sourceAccount) else api.preview(ledger.id,filename,csv);confirmedSimilar=false }},
+                        onPreview={runAction { redaction=null;preview=if(nativeImport)api.previewNative(ledger.id,importFormat,filename,nativeContent,sourceAccount) else api.preview(ledger.id,filename,csv);confirmedSimilar=false }},
                         onConfirmSimilar={confirmedSimilar=it},
                         onCommit={preview?.let { p->runAction { val result=api.commit(ledger.id,p,confirmedSimilar);preview=p.copy(alreadyCommitted=true);csv="";nativeContent="";month=result.month;query="";page=1;refresh++
                             notice="已保存 ${result.added} 笔，跳过 ${result.skipped} 笔重复流水。"+if(result.pending>0)"另有 ${result.pending} 笔待核实，未计入收支。"else"" } }},
                     )
+                    preview?.takeIf { it.id.isNotEmpty() && it.format in listOf("alipay","wechat") && it.errors.isEmpty() }?.let { imported ->
+                        TextButton(onClick={runAction { redaction=null;redaction=api.redactionPreview(ledger.id,imported.id) }},enabled=!working) { Text("查看脱敏预览") }
+                        redaction?.takeIf { it.importId==imported.id }?.let { result ->
+                            RedactionPreviewPanel(result,onClose={redaction=null})
+                        }
+                    }
                 }
                 if(panel=="history") importHistory?.let { history ->
                     ImportHistoryPanel(history,working,canManage=ledger.role!="viewer",
@@ -161,7 +168,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                         onPage={next->runAction {importHistory=api.importHistory(ledger.id,next)}},
                         onOpen={id->runAction {
                             val detail=api.importDetail(ledger.id,id)
-                            preview=detail.preview;filename=detail.preview.filename;importFormat=detail.preview.format
+                            redaction=null;preview=detail.preview;filename=detail.preview.filename;importFormat=detail.preview.format
                             nativeContent="";csv="";sourceAccount=detail.preview.sourceAccount.ifBlank { "我的支付宝" };confirmedSimilar=false;panel="import"
                         }})
                 }
@@ -250,7 +257,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                                             if(sourceLinks.isEmpty())Text("这笔交易没有导入来源",fontSize=12.sp,color=Muted)
                                             sourceLinks.forEach { link -> TextButton(onClick={runAction {
                                                 val detail=api.importDetail(ledger.id,link.importId)
-                                                preview=detail.preview;filename=detail.preview.filename;importFormat=detail.preview.format
+                                                redaction=null;preview=detail.preview;filename=detail.preview.filename;importFormat=detail.preview.format
                                                 sourceAccount=detail.preview.sourceAccount;nativeContent="";csv="";confirmedSimilar=false;panel="import"
                                             }},enabled=!working){Text("${link.filename} · 第 ${link.line} 行")} }
                                         }

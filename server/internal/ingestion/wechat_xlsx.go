@@ -3,7 +3,6 @@ package ingestion
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -96,7 +95,7 @@ func ParseWeChatXLSX(raw []byte, account string) Document {
 	headerFound := false
 	lastRow := 0
 	rowCount := 0
-	required := []string{"交易时间", "交易类型", "交易对方", "商品", "收/支", "金额(元)", "支付方式", "当前状态", "交易单号", "商户单号"}
+	required := weChatColumns
 	for {
 		token, e := dec.Token()
 		if e == io.EOF {
@@ -212,19 +211,7 @@ func ParseWeChatXLSX(raw []byte, account string) Document {
 				return fail(row.Index, "订单号必须为文本，避免电子表格精度损失")
 			}
 		}
-		get := func(k string) string { return strings.TrimSpace(fields[k]) }
-		amount := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(get("金额(元)"), "¥"), "￥"))
-		f := Fields{Date: get("交易时间"), Type: get("收/支"), Amount: amount, Currency: "CNY", Merchant: get("交易对方"), Category: get("交易类型"), Source: "微信", Account: strings.TrimSpace(account), ExternalID: get("交易单号"), Note: get("商品")}
-		scope, _ := json.Marshal([]string{"wechat", f.Account})
-		ids := []Identifier{}
-		if v := f.ExternalID; v != "" && v != "/" && v != "-" {
-			ids = append(ids, Identifier{"wechat_payment_trace", string(scope), v})
-		}
-		if v := get("商户单号"); v != "" && v != "/" && v != "-" {
-			scope, _ := json.Marshal([]string{"wechat", f.Account, f.Merchant})
-			ids = append(ids, Identifier{"merchant_order", string(scope), v})
-		}
-		d.Records = append(d.Records, Record{Ordinal: len(d.Records) + 1, Line: row.Index, Fields: f, Identifiers: ids, Raw: fields})
+		d.Records = append(d.Records, weChatRecord(fields, account, len(d.Records)+1, row.Index))
 	}
 	if !headerFound || len(d.Records) == 0 {
 		return fail(0, fmt.Sprintf("未找到微信账单记录（已读取 %d 行）", rowCount))

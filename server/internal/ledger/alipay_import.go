@@ -32,7 +32,7 @@ func (s *Store) previewNative(format, filename, content, account string) (Previe
 	}
 	var d ingestion.Document
 	if format == "wechat" {
-		d = ingestion.ParseWeChatXLSX(raw, account)
+		d = ingestion.ParseWeChat(raw, account)
 	} else {
 		d = ingestion.ParseAlipayCSV(raw, account)
 	}
@@ -40,7 +40,7 @@ func (s *Store) previewNative(format, filename, content, account string) (Previe
 	// different wallet accounts must not reuse a batch or payment identity.
 	envelopeFormat := "alipay-csv-v1"
 	if format == "wechat" {
-		envelopeFormat = "wechat-xlsx-v1"
+		envelopeFormat = d.Parser + "-v1"
 	}
 	envelope := encode(struct{ Format, Account, Content string }{envelopeFormat, account, base64.StdEncoding.EncodeToString(raw)})
 	return s.preview(filename, envelope, &d)
