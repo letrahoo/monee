@@ -32,7 +32,7 @@ internal val Pine = Color(0xFF165B4A)
 internal val Ink = Color(0xFF20372F)
 internal val Muted = Color(0xFF6E7F76)
 private val Paper = Color(0xFFF6F7F2)
-private val Line = Color(0xFFE4E9E1)
+internal val Line = Color(0xFFE4E9E1)
 
 private fun requestKey() = List(32) { "0123456789abcdef"[Random.nextInt(16)] }.joinToString("")
 
@@ -60,6 +60,8 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
     var filename by remember { mutableStateOf("import.csv") }
     var undoPreview by remember { mutableStateOf<ImportUndoPreview?>(null) }
     var undoFilename by remember { mutableStateOf("") }
+    var reviewQueue by remember { mutableStateOf<ReviewQueue?>(null) }
+    var reviewFormat by remember { mutableStateOf("") }
     var importHistory by remember { mutableStateOf<ImportHistory?>(null) }
     var importFormat by remember { mutableStateOf("alipay") }
     val nativeImport = importFormat != "standard"
@@ -128,7 +130,8 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                     Button(onClick={panel=if(panel=="import")""else"import";actionError=null},enabled=ledger.role!="viewer"&&dashboard!=null&&!working&&connectionError==null) { Text("导入账单") }
                     OutlinedButton(onClick={panel=if(panel=="manual")""else"manual";if(input.date.isEmpty())input=input.copy(date=dashboard?.today.orEmpty());actionError=null},enabled=ledger.role!="viewer"&&dashboard!=null&&!working&&connectionError==null) { Text("记一笔") }
                     TextButton(onClick={runAction { importHistory=api.importHistory(ledger.id,1);panel="history" }},enabled=!working){Text("导入记录")}
-                    TextButton(onClick={refresh++},enabled=!working) { Text("刷新") }
+                    TextButton(onClick={runAction { reviewQueue=api.reviewQueue(ledger.id,1,reviewFormat);panel="review" }},enabled=!working){Text("待核实")}
+                    TextButton(onClick={if(panel=="review")runAction {reviewQueue=api.reviewQueue(ledger.id,reviewQueue?.page ?: 1,reviewFormat)}else refresh++},enabled=!working) { Text("刷新") }
                 }
                 if(ledger.role=="viewer")Text("只读账本",color=Muted)
                 notice?.let { Text(it,color=Pine) }
@@ -150,6 +153,17 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                         onCommit={preview?.let { p->runAction { val result=api.commit(ledger.id,p,confirmedSimilar);preview=p.copy(alreadyCommitted=true);csv="";nativeContent="";month=result.month;query="";page=1;refresh++
                             notice="已保存 ${result.added} 笔，跳过 ${result.skipped} 笔重复流水。"+if(result.pending>0)"另有 ${result.pending} 笔待核实，未计入收支。"else"" } }},
                     )
+                }
+                if(panel=="review") reviewQueue?.let { queue ->
+                    ReviewQueuePanel(queue,working,
+                        onFormat={format->runAction {val next=api.reviewQueue(ledger.id,1,format);reviewQueue=next;reviewFormat=format}},
+                        onPage={next->runAction {reviewQueue=api.reviewQueue(ledger.id,next,reviewFormat)}},
+                        onClose={panel="";actionError=null},
+                        onOpenBatch={id->runAction {
+                            val detail=api.importDetail(ledger.id,id)
+                            preview=detail.preview;filename=detail.preview.filename;importFormat=detail.preview.format
+                            nativeContent="";csv="";sourceAccount=detail.preview.sourceAccount;confirmedSimilar=false;panel="import"
+                        }})
                 }
                 if(panel=="history") importHistory?.let { history ->
                     ImportHistoryPanel(history,working,canManage=ledger.role!="viewer",
@@ -186,7 +200,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                         saved(created.date.take(7),"已保存")
                     }})
                 }
-                dashboard?.let { data ->
+                if(panel!="review") dashboard?.let { data ->
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                         data.months.forEach { option ->
                             if(option==data.month) Button(onClick={month=option;page=1},shape=RoundedCornerShape(20.dp),elevation=null) { Text(option) }

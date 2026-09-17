@@ -76,6 +76,12 @@ compose.desktop {
 tasks.matching { it.name == "createDistributable" }.configureEach {
     val marketingVersion = providers.gradleProperty("moneeVersion")
     inputs.property("marketingVersion", marketingVersion)
+    // Compose 1.11's resource preparation dependency alone does not invalidate jpackage.
+    // Track resource contents explicitly so Go-only or Web-only changes rebuild the app image.
+    dependsOn(bundleDesktopResources)
+    inputs.dir(bundleDesktopResources.map { it.destinationDir })
+        .withPropertyName("bundledLocalServiceAndWeb")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     doLast {
         val app = layout.buildDirectory.dir("compose/binaries/main/app/Monee.app").get().asFile
         // jpackage copies app resources with mode 0644, even when the staged binary is 0755.

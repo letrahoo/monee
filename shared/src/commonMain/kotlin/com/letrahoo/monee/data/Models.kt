@@ -101,3 +101,6 @@ data class LoginProof(val verifier:String,val challenge:String)
 @Serializable data class ImportUndoRequest(val ledgerVersion:Long)
 @Serializable data class ImportUndoRow(val transactionId:String,val date:String,val merchant:String,val type:String,val amountMinor:String,val action:String,val reason:String)
 @Serializable data class ImportUndoPreview(val importId:String,val ledgerVersion:Long,val state:String,val action:String,val changeCount:Int,val preservedCount:Int,val incomeMinor:String,val expenseMinor:String,val rows:List<ImportUndoRow>,val alreadyApplied:Boolean,val blockedCount:Int=0)
+
+@Serializable data class ReviewQueueItem(val id:String,val importId:String,val filename:String,val line:Int,val format:String,val batchState:String,val sourceAccount:String="",val date:String,val merchant:String,val amount:String,val reason:String,val raw:Map<String,String> = emptyMap())
+@Serializable data class ReviewQueue(val items:List<ReviewQueueItem>,val page:Int,val pageSize:Int,val totalCount:Int,val format:String)
