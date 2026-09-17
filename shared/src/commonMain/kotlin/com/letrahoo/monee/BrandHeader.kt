@@ -22,9 +22,9 @@ import org.jetbrains.compose.resources.painterResource
 @Composable
 internal fun BrandHeader() {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Image(painterResource(Res.drawable.logo), "monee Logo", Modifier.size(56.dp))
+        Image(painterResource(Res.drawable.logo), "monee Logo", Modifier.size(40.dp))
         Spacer(Modifier.width(12.dp))
-        Text("monee", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Pine)
+        Text("monee", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Pine)
     }
 }
 

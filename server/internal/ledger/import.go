@@ -37,6 +37,10 @@ func parseCSV(text string) ([]PreviewRow, []string) {
 }
 
 func (s *Store) Preview(filename, text string) (Preview, error) {
+	return s.preview(filename, text, nil)
+}
+
+func (s *Store) preview(filename, text string, native *ingestion.Document) (Preview, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.authorize(s.db, true); err != nil {
@@ -49,8 +53,26 @@ func (s *Store) Preview(filename, text string) (Preview, error) {
 	if len([]rune(p.Filename)) > 200 {
 		return p, problem("invalid", "文件名过长")
 	}
-	p.Rows, p.Errors = parseCSV(text)
+	if native == nil {
+		p.Rows, p.Errors = parseCSV(text)
+	} else {
+		p.Format = "alipay"
+		if native.Parser == "wechat-xlsx" {
+			p.Format = "wechat"
+		}
+		p.SourceDocument = native
+		if len(native.Records) > 0 {
+			p.SourceAccount = native.Records[0].Fields.Account
+		}
+		p.Rows, p.Pending = s.nativeRows(*native)
+		for _, issue := range native.Issues {
+			p.Errors = append(p.Errors, fmt.Sprintf("第 %d 行：%s", issue.Line, issue.Message))
+		}
+	}
 	if len(p.Errors) > 0 {
+		if native != nil {
+			return s.retainFailedPreview(p, text)
+		}
 		return p, nil
 	}
 	var err error
@@ -58,6 +80,10 @@ func (s *Store) Preview(filename, text string) (Preview, error) {
 		return p, err
 	}
 	contentHash := hash(text)
+	parserVersion := 1
+	if native != nil {
+		parserVersion = 2
+	}
 	var previousJSON string
 	var committed sql.NullString
 	err = s.db.QueryRow("SELECT id,preview_json,committed_at FROM imports WHERE ledger_id=? AND content_hash=?", s.ledgerID, contentHash).Scan(&p.ID, &previousJSON, &committed)
@@ -80,6 +106,7 @@ func (s *Store) Preview(filename, text string) (Preview, error) {
 		key := identity(t)
 		var duplicate Transaction
 		found := false
+		originalFingerprint := ""
 		if key != "" {
 			if previous, ok := seenIDs[key]; ok {
 				duplicate = previous
@@ -88,13 +115,19 @@ func (s *Store) Preview(filename, text string) (Preview, error) {
 				duplicate, err = scanRecord(s.db.QueryRow("SELECT "+transactionColumns+" FROM transactions WHERE ledger_id=? AND identity_key=?", s.ledgerID, key))
 				if err == nil {
 					found = true
+					if err = s.db.QueryRow("SELECT fingerprint FROM transactions WHERE ledger_id=? AND id=?", s.ledgerID, duplicate.ID).Scan(&originalFingerprint); err != nil {
+						return p, err
+					}
 				} else if !errors.Is(err, sql.ErrNoRows) {
 					return p, err
 				}
 			}
 		}
 		if found {
-			if fingerprint(t) != fingerprint(duplicate) {
+			if originalFingerprint == "" {
+				originalFingerprint = fingerprint(duplicate)
+			}
+			if fingerprint(t) != originalFingerprint {
 				row.Status = "conflict"
 				row.Message = "相同来源流水号的数据不一致"
 				p.Errors = append(p.Errors, fmt.Sprintf("第 %d 行：%s", row.Line, row.Message))
@@ -122,10 +155,13 @@ func (s *Store) Preview(filename, text string) (Preview, error) {
 		}
 	}
 	if len(p.Errors) > 0 {
+		if native != nil {
+			return s.retainFailedPreview(p, text)
+		}
 		return p, nil
 	}
-	_, err = s.db.Exec(`INSERT INTO imports(id,ledger_id,filename,content_hash,raw_csv,parser_version,ledger_version,preview_json,created_at) VALUES(?,?,?,?,?,1,?,?,?)
- ON CONFLICT(ledger_id,content_hash) DO UPDATE SET ledger_version=excluded.ledger_version,preview_json=excluded.preview_json`, p.ID, s.ledgerID, p.Filename, contentHash, text, p.LedgerVersion, encode(p), now())
+	_, err = s.db.Exec(`INSERT INTO imports(id,ledger_id,filename,content_hash,raw_csv,parser_version,ledger_version,preview_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)
+ ON CONFLICT(ledger_id,content_hash) DO UPDATE SET ledger_version=excluded.ledger_version,preview_json=excluded.preview_json`, p.ID, s.ledgerID, p.Filename, contentHash, text, parserVersion, p.LedgerVersion, encode(p), now())
 	if err == nil && s.actorID != "" {
 		_, err = s.db.Exec("UPDATE imports SET created_by=COALESCE(created_by,?) WHERE id=? AND ledger_id=?", s.actorID, p.ID, s.ledgerID)
 	}
@@ -174,6 +210,10 @@ func (s *Store) Commit(id string, version int64, confirmSimilar bool) (CommitRes
 	if p.SimilarCount > 0 && !confirmSimilar {
 		return result, problem("conflict", "请先核实疑似重复，确认它们是独立交易")
 	}
+	if len(p.Rows) == 0 {
+		return result, problem("invalid", "本批没有可入账记录，待核实记录已保留")
+	}
+	result.Pending = len(p.Pending)
 	links := []map[string]any{}
 	for _, row := range p.Rows {
 		disposition := "added"
@@ -201,8 +241,36 @@ func (s *Store) Commit(id string, version int64, confirmSimilar bool) (CommitRes
 	if _, err = tx.Exec("UPDATE ledgers SET version=version+1 WHERE id=?", s.ledgerID); err != nil {
 		return result, err
 	}
-	if err = s.change(tx, "import", id, map[string]any{"result": result, "sourceLinks": links, "parserVersion": 1}); err != nil {
+	if err = s.change(tx, "import", id, map[string]any{"result": result, "sourceLinks": links, "parserVersion": func() int {
+		if p.SourceDocument != nil {
+			return 2
+		}
+		return 1
+	}()}); err != nil {
 		return result, err
 	}
 	return result, tx.Commit()
+}
+
+// Failed native imports remain inspectable and can never be committed. Preserve
+// the original envelope and error locations without creating financial records.
+func (s *Store) retainFailedPreview(p Preview, raw string) (Preview, error) {
+	version, err := s.version()
+	if err != nil {
+		return p, err
+	}
+	p.LedgerVersion = version
+	err = s.db.QueryRow("SELECT id FROM imports WHERE ledger_id=? AND content_hash=?", s.ledgerID, hash(raw)).Scan(&p.ID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return p, err
+	}
+	if p.ID == "" {
+		p.ID = newID()
+	}
+	_, err = s.db.Exec(`INSERT INTO imports(id,ledger_id,filename,content_hash,raw_csv,parser_version,ledger_version,preview_json,created_at) VALUES(?,?,?,?,?,2,?,?,?)
+    ON CONFLICT(ledger_id,content_hash) DO UPDATE SET preview_json=excluded.preview_json,ledger_version=excluded.ledger_version WHERE imports.committed_at IS NULL`, p.ID, s.ledgerID, p.Filename, hash(raw), raw, version, encode(p), now())
+	if err == nil && s.actorID != "" {
+		_, err = s.db.Exec("UPDATE imports SET created_by=COALESCE(created_by,?) WHERE ledger_id=? AND id=?", s.actorID, s.ledgerID, p.ID)
+	}
+	return p, err
 }

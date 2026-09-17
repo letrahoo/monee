@@ -114,3 +114,12 @@ Web / Mac 均已实测从白名单管理页点击“退出登录”回到登录�
 - [GitHub App 用户授权](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app)：Client ID、PKCE 与用户身份查询；GitHub App 不使用 OAuth scopes。
 - [Compose 原生分发](https://kotlinlang.org/docs/multiplatform/compose-native-distribution.html)：macOS Info.plist 和深层链接注册。
 - [Java Desktop](https://docs.oracle.com/en/java/javase/24/docs/api/java.desktop/java/awt/Desktop.html)：应用 URI 处理器与前台窗口请求。
+
+
+## Mac 登录态缓存（2026-09-17）
+
+桌面端把当前 Monee 会话保存到 macOS 钥匙串，按数据目录和服务地址隔离。程序启动时恢复该会话并向服务端检查身份与准入；不会保存 OAuth 客户端密钥到应用资源。凭据通过私有标准输入传入钥匙串工具，不进入进程参数、项目文件或日志。
+
+在相同数据目录、服务地址和有效会话下，重新构建/启动不要求重复 GitHub/Google 授权。服务端现有 12 小时有效期保持不变；过期、撤销或主动退出后需要重新登录。退出会撤销服务端会话并删除钥匙串条目，网络连接失败本身不会清除缓存。该实现仅覆盖 macOS；浏览器继续使用自己的会话 Cookie，移动端安全存储尚未实现。
+
+已验证：真实 GitHub 登录后的 Mac 进程重启恢复，以及主动退出后的重启保持登录首页。另有合成凭据钥匙串往返测试，设置 `MONEE_TEST_KEYCHAIN=1` 后执行 `:shared:jvmTest --tests '*SessionVaultTest'` 可运行；默认测试不触碰钥匙串。

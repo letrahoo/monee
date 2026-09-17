@@ -50,9 +50,18 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
     var actionError by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var panel by remember { mutableStateOf("") }
+    var sourceLinks by remember { mutableStateOf<List<TransactionSource>>(emptyList()) }
+    var sourceID by remember { mutableStateOf("") }
+    var revisions by remember { mutableStateOf<List<AnnotationRevision>>(emptyList()) }
+    var revisionID by remember { mutableStateOf("") }
     var selectedID by remember { mutableStateOf<String?>(null) }
     var csv by remember { mutableStateOf("") }
     var filename by remember { mutableStateOf("import.csv") }
+    var importHistory by remember { mutableStateOf<ImportHistory?>(null) }
+    var importFormat by remember { mutableStateOf("alipay") }
+    val nativeImport = importFormat != "standard"
+    var nativeContent by remember { mutableStateOf("") }
+    var sourceAccount by remember { mutableStateOf("我的支付宝") }
     var preview by remember { mutableStateOf<ImportPreview?>(null) }
     var confirmedSimilar by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf(TransactionInput()) }
@@ -88,20 +97,21 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
     MaterialTheme(
         colors = lightColors(primary=Pine,secondary=Color(0xFFE4B940),background=Paper,surface=Color.White,onBackground=Ink,onSurface=Ink),
         typography = Typography(defaultFontFamily=FontFamily(Font(Res.font.noto_sans_sc))),
+        shapes = Shapes(small=RoundedCornerShape(10.dp),medium=RoundedCornerShape(16.dp),large=RoundedCornerShape(24.dp)),
     ) {
         BoxWithConstraints(Modifier.fillMaxSize().background(Paper),contentAlignment=Alignment.TopCenter) {
             val compact = maxWidth < 760.dp
             Column(Modifier.widthIn(max=1200.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(if(compact)20.dp else 40.dp),
-                verticalArrangement=Arrangement.spacedBy(22.dp)) {
-                BrandHeader()
-                Text(ledger.name,fontSize=22.sp,fontWeight=FontWeight.Bold,color=Pine)
-                Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
-                    FlowRow(horizontalArrangement=Arrangement.spacedBy(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                verticalArrangement=Arrangement.spacedBy(18.dp)) {
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
+                    BrandHeader()
+                    Row(horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                         TextButton(onClick=onWorkspace,enabled=!working&&!authBusy){Text("我的账本")}
                         TextButton(onClick=onAccount,enabled=!working&&!authBusy){Text("账号设置")}
                     }
-                    authError?.let{Text(it,color=MaterialTheme.colors.error)}
                 }
+                Divider(color=Line)
+                authError?.let{Text(it,color=MaterialTheme.colors.error)}
                 if(connectionError!=null) Surface(color=Color(0xFFFFEBE7),shape=RoundedCornerShape(12.dp)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
                         Text(connectionError.orEmpty(),color=MaterialTheme.colors.error,fontSize=13.sp)
@@ -109,10 +119,12 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                         TextButton(onClick={api.reconnect();refresh++}) { Text("重试") }
                     }
                 }
-                if (loading || working) LinearProgressIndicator(Modifier.fillMaxWidth(),color=Pine)
+                if ((loading && dashboard==null) || working) LinearProgressIndicator(Modifier.fillMaxWidth(),color=Pine)
                 FlowRow(horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                    Text(ledger.name,modifier=Modifier.padding(end=20.dp,top=6.dp),fontSize=24.sp,fontWeight=FontWeight.Bold,color=Ink)
                     Button(onClick={panel=if(panel=="import")""else"import";actionError=null},enabled=ledger.role!="viewer"&&dashboard!=null&&!working&&connectionError==null) { Text("导入账单") }
                     OutlinedButton(onClick={panel=if(panel=="manual")""else"manual";if(input.date.isEmpty())input=input.copy(date=dashboard?.today.orEmpty());actionError=null},enabled=ledger.role!="viewer"&&dashboard!=null&&!working&&connectionError==null) { Text("记一笔") }
+                    TextButton(onClick={runAction { importHistory=api.importHistory(ledger.id,1);panel="history" }},enabled=!working){Text("导入记录")}
                     TextButton(onClick={refresh++},enabled=!working) { Text("刷新") }
                 }
                 if(ledger.role=="viewer")Text("只读账本",color=Muted)
@@ -120,14 +132,30 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                 actionError?.let { Text(it,color=MaterialTheme.colors.error) }
                 if(panel=="import") {
                     TextButton(onClick={panel=""},enabled=!working){Text("收起导入")}
-                    ImportPanel(csv,filename,preview,confirmedSimilar,working,
+                    ImportPanel(csv,filename,preview,confirmedSimilar,working||ledger.role=="viewer",
+                        format=importFormat,hasNativeFile=nativeContent.isNotEmpty(),sourceAccount=sourceAccount,
+                        onMode={importFormat=it;sourceAccount=if(it=="wechat")"我的微信"else"我的支付宝";preview=null;csv="";nativeContent="";filename="import.csv";confirmedSimilar=false},
+                        onAccount={sourceAccount=it;preview=null;confirmedSimilar=false},
                         onCSVChange=::changeCSV,
-                        onPick={runAction { chooseCSV()?.let { filename=it.name;changeCSV(it.text) } }},
+                        onPick={runAction {
+                            if(nativeImport) chooseNativeBill(importFormat)?.let { filename=it.name;nativeContent=it.contentBase64;preview=null;confirmedSimilar=false }
+                            else chooseCSV()?.let { filename=it.name;changeCSV(it.text) }
+                        }},
                         onTemplate={runAction { filename="import.csv";changeCSV(api.template(false)) }},
-                        onPreview={runAction { preview=api.preview(ledger.id,filename,csv);confirmedSimilar=false }},
+                        onPreview={runAction { preview=if(nativeImport)api.previewNative(ledger.id,importFormat,filename,nativeContent,sourceAccount) else api.preview(ledger.id,filename,csv);confirmedSimilar=false }},
                         onConfirmSimilar={confirmedSimilar=it},
-                        onCommit={preview?.let { p->runAction { val result=api.commit(ledger.id,p,confirmedSimilar);preview=null;csv="";saved(result.month,"已保存 ${result.added} 笔，跳过 ${result.skipped} 笔重复流水。") } }},
+                        onCommit={preview?.let { p->runAction { val result=api.commit(ledger.id,p,confirmedSimilar);preview=p.copy(alreadyCommitted=true);csv="";nativeContent="";month=result.month;query="";page=1;refresh++
+                            notice="已保存 ${result.added} 笔，跳过 ${result.skipped} 笔重复流水。"+if(result.pending>0)"另有 ${result.pending} 笔待核实，未计入收支。"else"" } }},
                     )
+                }
+                if(panel=="history") importHistory?.let { history ->
+                    ImportHistoryPanel(history,working,
+                        onPage={next->runAction {importHistory=api.importHistory(ledger.id,next)}},
+                        onOpen={id->runAction {
+                            val detail=api.importDetail(ledger.id,id)
+                            preview=detail.preview;filename=detail.preview.filename;importFormat=detail.preview.format
+                            nativeContent="";csv="";sourceAccount=detail.preview.sourceAccount.ifBlank { "我的支付宝" };confirmedSimilar=false;panel="import"
+                        }})
                 }
                 if(panel=="manual") {
                     TextButton(onClick={panel=""},enabled=!working){Text("收起记账")}
@@ -194,8 +222,25 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                                     if(selectedID==item.id) Column(Modifier.fillMaxWidth().background(Color(0xFFF0F4EC)).padding(20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                                         Text("账单详情 · ${item.merchant}",color=Pine,fontWeight=FontWeight.Bold)
                                         Text("日期：${item.date}\n来源：${item.source}\n资金账户：${item.account}（待核实）")
-                                        if(item.externalId.isNotEmpty())Text("来源流水号：${item.externalId}")
+                                        if(item.externalId.isNotEmpty()&&!item.externalId.contains("-native-v1:"))Text("来源流水号：${item.externalId}")
                                         if(item.note.isNotEmpty())Text("备注：${item.note}")
+                                        TextButton(onClick={runAction {sourceLinks=api.transactionSources(ledger.id,item.id);sourceID=item.id}},enabled=!working){Text("来源批次")}
+                                        if(sourceID==item.id) {
+                                            if(sourceLinks.isEmpty())Text("这笔交易没有导入来源",fontSize=12.sp,color=Muted)
+                                            sourceLinks.forEach { link -> TextButton(onClick={runAction {
+                                                val detail=api.importDetail(ledger.id,link.importId)
+                                                preview=detail.preview;filename=detail.preview.filename;importFormat=detail.preview.format
+                                                sourceAccount=detail.preview.sourceAccount;nativeContent="";csv="";confirmedSimilar=false;panel="import"
+                                            }},enabled=!working){Text("${link.filename} · 第 ${link.line} 行")} }
+                                        }
+                                        if(ledger.role!="viewer") AnnotationEditor(item,working,onSave={category,note->runAction {
+                                            api.annotate(ledger.id,item.id,AnnotationInput(item.version,category,note));notice="分类与备注已保存";refresh++;revisionID=""
+                                        }})
+                                        TextButton(onClick={runAction { revisions=api.annotationHistory(ledger.id,item.id);revisionID=item.id }},enabled=!working){Text("修改记录")}
+                                        if(revisionID==item.id) {
+                                            if(revisions.isEmpty())Text("暂无修改记录",fontSize=12.sp,color=Muted)
+                                            revisions.forEach { revision -> Text("${revision.createdAt.take(19)} · 分类：${revision.before.category} → ${revision.after.category}\n备注：${revision.before.note.ifBlank { "无" }} → ${revision.after.note.ifBlank { "无" }}",fontSize=12.sp,color=Muted) }
+                                        }
                                         TextButton(onClick={selectedID=null}){Text("收起详情")}
                                     }
                                     if(index<data.transactions.lastIndex)Divider(color=Line)

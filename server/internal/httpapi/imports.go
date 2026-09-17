@@ -8,6 +8,61 @@ import (
 )
 
 func (a API) registerImports(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/transactions/{id}/sources", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := a.ledgerForRequest(w, r)
+		if !ok {
+			return
+		}
+		out, e := s.TransactionSources(r.PathValue("id"))
+		if e != nil {
+			fail(w, e)
+			return
+		}
+		writeJSON(w, 200, out)
+	})
+
+	mux.HandleFunc("POST /api/v1/imports/alipay/preview", func(w http.ResponseWriter, r *http.Request) {
+		store, ok := a.ledgerForRequest(w, r)
+		if !ok {
+			return
+		}
+		var input struct {
+			Filename      string `json:"filename"`
+			ContentBase64 string `json:"contentBase64"`
+			Account       string `json:"account"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		result, err := store.PreviewAlipay(input.Filename, input.ContentBase64, input.Account)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	})
+
+	mux.HandleFunc("POST /api/v1/imports/wechat/preview", func(w http.ResponseWriter, r *http.Request) {
+		store, ok := a.ledgerForRequest(w, r)
+		if !ok {
+			return
+		}
+		var input struct {
+			Filename      string `json:"filename"`
+			ContentBase64 string `json:"contentBase64"`
+			Account       string `json:"account"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		result, err := store.PreviewWeChat(input.Filename, input.ContentBase64, input.Account)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	})
+
 	mux.HandleFunc("GET /api/v1/imports", func(w http.ResponseWriter, r *http.Request) {
 		store, ok := a.ledgerForRequest(w, r)
 		if !ok {

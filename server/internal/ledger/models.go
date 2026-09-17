@@ -77,18 +77,30 @@ type PreviewRow struct {
 	Status  string      `json:"status"`
 	Message string      `json:"message"`
 }
+type PendingRow struct {
+	Line     int    `json:"line"`
+	Date     string `json:"date"`
+	Merchant string `json:"merchant"`
+	Amount   string `json:"amount"`
+	Reason   string `json:"reason"`
+}
 type Preview struct {
-	ID               string       `json:"id"`
-	Filename         string       `json:"filename"`
-	LedgerVersion    int64        `json:"ledgerVersion"`
-	Rows             []PreviewRow `json:"rows"`
-	NewCount         int          `json:"newCount"`
-	DuplicateCount   int          `json:"duplicateCount"`
-	SimilarCount     int          `json:"similarCount"`
-	Errors           []string     `json:"errors"`
-	AlreadyCommitted bool         `json:"alreadyCommitted"`
+	Format           string              `json:"format,omitempty"`
+	SourceAccount    string              `json:"sourceAccount,omitempty"`
+	Pending          []PendingRow        `json:"pending,omitempty"`
+	SourceDocument   *ingestion.Document `json:"sourceDocument,omitempty"`
+	ID               string              `json:"id"`
+	Filename         string              `json:"filename"`
+	LedgerVersion    int64               `json:"ledgerVersion"`
+	Rows             []PreviewRow        `json:"rows"`
+	NewCount         int                 `json:"newCount"`
+	DuplicateCount   int                 `json:"duplicateCount"`
+	SimilarCount     int                 `json:"similarCount"`
+	Errors           []string            `json:"errors"`
+	AlreadyCommitted bool                `json:"alreadyCommitted"`
 }
 type CommitResult struct {
+	Pending  int    `json:"pending"`
 	ImportID string `json:"importId"`
 	Added    int    `json:"added"`
 	Skipped  int    `json:"skipped"`
@@ -181,6 +193,9 @@ func normalize(in Input) (Transaction, error) {
 func identity(t Transaction) string {
 	if t.ExternalID == "" {
 		return ""
+	}
+	if strings.HasPrefix(t.ExternalID, "alipay-native-v1:") || strings.HasPrefix(t.ExternalID, "wechat-native-v1:") {
+		return hash(encode([]string{t.Source, t.ExternalID}))
 	}
 	return hash(encode([]string{t.Source, t.Account, t.ExternalID}))
 }

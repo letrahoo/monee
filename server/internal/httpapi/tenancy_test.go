@@ -77,6 +77,9 @@ func TestLedgerIsolationInvitationsAndRevocation(t *testing.T) {
 	call(1, first.ID, "POST", "/api/v1/transactions", input, 403)
 	call(1, first.ID, "GET", "/api/v1/imports", "", 200)
 	call(1, first.ID, "POST", "/api/v1/imports/preview", `{"filename":"a.csv","csv":"a"}`, 403)
+	call(1, first.ID, "POST", "/api/v1/imports/wechat/preview", `{"filename":"a.xlsx","account":"a","contentBase64":""}`, 403)
+	call(1, first.ID, "PATCH", "/api/v1/transactions/nonexistent/annotation", `{"version":1,"category":"x","note":""}`, 403)
+	call(1, first.ID, "POST", "/api/v1/imports/alipay/preview", `{"filename":"a.csv","account":"a","contentBase64":""}`, 403)
 	call(1, first.ID, "GET", "/api/v1/ledgers/"+first.ID+"/members", "", 403)
 	owner, err := data.Scoped(ids[0], first.ID)
 	if err != nil {

@@ -89,13 +89,13 @@ fun App() {
         } else {
             Column(Modifier.fillMaxSize().background(MaterialTheme.colors.background).verticalScroll(rememberScrollState()).padding(24.dp),
                 horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(20.dp)) {
-                Spacer(Modifier.height(24.dp))
-                Image(painterResource(Res.drawable.logo),"Monee Logo",Modifier.size(80.dp))
-                Text("monee",fontSize=32.sp,fontWeight=FontWeight.Bold,color=Pine)
+                Spacer(Modifier.height(40.dp))
+                Image(painterResource(Res.drawable.logo),"Monee Logo",Modifier.size(64.dp))
+                Text("monee",fontSize=30.sp,fontWeight=FontWeight.Bold,color=Pine)
                 Text("Know Your Money. Own Your Future.",color=Muted,fontSize=13.sp)
-                Surface(shape=RoundedCornerShape(20.dp),modifier=Modifier.widthIn(max=540.dp).fillMaxWidth()) {
-                    Column(Modifier.padding(26.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-                        Text(if(user!=null&&!user.allowed)"无数据访问权限"else"登录 Monee",fontSize=25.sp,fontWeight=FontWeight.Bold,color=Pine)
+                Surface(shape=RoundedCornerShape(24.dp),modifier=Modifier.widthIn(max=440.dp).fillMaxWidth()) {
+                    Column(Modifier.padding(32.dp),verticalArrangement=Arrangement.spacedBy(18.dp)) {
+                        Text(if(user!=null&&!user.allowed)"无数据访问权限"else"登录你的账本",fontSize=22.sp,fontWeight=FontWeight.Bold,color=Pine)
                         if(user!=null&&!user.allowed) {
                             Text("${user.provider.displayProvider()} · ${user.label}")
                             Text("请联系管理员开通访问权限。",color=Muted)
@@ -108,7 +108,7 @@ fun App() {
                         if(busy){LinearProgressIndicator(Modifier.fillMaxWidth());Text(if(loggingOut)"正在退出登录…"else"请在浏览器中完成登录。",fontSize=13.sp)}
                         listOf("google","github").forEach {provider->
                             val enabled=auth?.providers?.any{it.id==provider&&it.enabled}==true
-                            OutlinedButton(onClick={login(provider)},enabled=enabled&&!busy&&connectionError==null,modifier=Modifier.fillMaxWidth()){
+                            OutlinedButton(onClick={login(provider)},enabled=enabled&&!busy&&connectionError==null,modifier=Modifier.fillMaxWidth().heightIn(min=52.dp),shape=RoundedCornerShape(12.dp)){
                                 Text("使用 ${provider.displayProvider()} 登录${if(auth!=null&&!enabled)" · 暂不可用"else""}")
                             }
                         }
