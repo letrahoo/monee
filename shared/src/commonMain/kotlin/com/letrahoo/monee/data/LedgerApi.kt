@@ -5,6 +5,8 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
@@ -14,25 +16,40 @@ internal val apiJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 internal expect fun platformClient(): HttpClient
 internal expect suspend fun discoverConnection(client: HttpClient): Connection
 expect suspend fun chooseCSV(): PickedCSV?
+expect suspend fun chooseNativeBill(format:String): PickedAlipay?
 internal expect val loginClient: String
 internal expect fun loginProof(): LoginProof
 internal expect suspend fun openLoginURL(url:String)
 internal expect suspend fun returnToApplication()
 internal expect fun isPlatformNetworkFailure(cause: Throwable): Boolean
 
+internal expect suspend fun loadSession(base:String):String?
+internal expect suspend fun saveSession(base:String,token:String)
+internal expect suspend fun clearSession(base:String)
+
 class LedgerApi {
     private val client = platformClient()
     private var connection: Connection? = null
     private var accessToken: String? = null
+    private val sessionMutex=Mutex()
+    private var sessionOrigin:String?=null
     private var csrf: String = ""
 
     fun reconnect() { connection = null }
     fun close() { client.close() }
 
+    private suspend fun destination():Connection = sessionMutex.withLock {
+        val next=connection ?: discoverConnection(client).also { connection=it }
+        if(sessionOrigin!=next.baseUrl) {
+            accessToken=loadSession(next.baseUrl);csrf="";sessionOrigin=next.baseUrl
+        }
+        next
+    }
+
     private suspend fun request(path: String, method: HttpMethod = HttpMethod.Get, body: String? = null,
                                 parameters: Map<String, String> = emptyMap(), key: String? = null, ledgerId:String?=null): String {
         try {
-            val destination = connection ?: discoverConnection(client).also { connection = it }
+            val destination = destination()
             val response = client.request(destination.baseUrl + "/api/v1/" + path) {
                 this.method = method
                 accessToken?.let { header(HttpHeaders.Authorization, "Bearer $it") }
@@ -60,10 +77,16 @@ class LedgerApi {
     }
 
     suspend fun authState(): AuthState {
+        val origin=destination().baseUrl
         val tokenAtStart=accessToken
         val state=apiJson.decodeFromString<AuthState>(request("auth/me"))
         csrf=state.csrfToken
-        if(state.user==null&&accessToken==tokenAtStart)accessToken=null
+        sessionMutex.withLock {
+            if(state.user==null&&accessToken==tokenAtStart) {
+                accessToken=null
+                if(tokenAtStart!=null)clearSession(origin)
+            }
+        }
         return state
     }
     suspend fun login(provider:String,intent:String="login") {
@@ -79,7 +102,7 @@ class LedgerApi {
                 when(result.status) {
                     "complete" -> {
                         if(result.token.isBlank())throw LedgerException("登录未完成")
-                        accessToken=result.token
+                        sessionMutex.withLock { accessToken=result.token;saveSession(base,result.token) }
                         returnToApplication()
                         return@withTimeout
                     }
@@ -89,7 +112,11 @@ class LedgerApi {
             }
         }
     }
-    suspend fun logout() { request("auth/logout",HttpMethod.Post,"{}");accessToken=null;csrf="" }
+    suspend fun logout() {
+        val base=destination().baseUrl
+        request("auth/logout",HttpMethod.Post,"{}")
+        sessionMutex.withLock { accessToken=null;csrf="";clearSession(base) }
+    }
     suspend fun registeredUsers():RegisteredUsers = apiJson.decodeFromString(request("admin/users"))
     suspend fun setRegisteredUser(user:RegisteredUser) {request("admin/users/${user.id}",HttpMethod.Patch,apiJson.encodeToString(AccessChange(!user.enabled,user.version)))}
     suspend fun accessList():AccessList = apiJson.decodeFromString(request("admin/allowlist"))
@@ -101,6 +128,13 @@ class LedgerApi {
         apiJson.decodeFromString(request("dashboard", parameters = mapOf("month" to month, "q" to query, "page" to page.toString()),ledgerId=ledgerId))
     suspend fun preview(ledgerId:String,filename: String, csv: String): ImportPreview =
         apiJson.decodeFromString(request("imports/preview", HttpMethod.Post, apiJson.encodeToString(ImportRequest(filename,csv)),ledgerId=ledgerId))
+    suspend fun annotate(ledgerId:String,id:String,input:AnnotationInput):LedgerTransaction = apiJson.decodeFromString(request("transactions/$id/annotation",HttpMethod.Patch,apiJson.encodeToString(input),ledgerId=ledgerId))
+    suspend fun transactionSources(ledgerId:String,id:String):List<TransactionSource> = apiJson.decodeFromString(request("transactions/$id/sources",ledgerId=ledgerId))
+    suspend fun annotationHistory(ledgerId:String,id:String):List<AnnotationRevision> = apiJson.decodeFromString(request("transactions/$id/annotations",ledgerId=ledgerId))
+    suspend fun importHistory(ledgerId:String,page:Int):ImportHistory = apiJson.decodeFromString(request("imports",parameters=mapOf("page" to page.toString()),ledgerId=ledgerId))
+    suspend fun importDetail(ledgerId:String,id:String):ImportDetail = apiJson.decodeFromString(request("imports/$id",ledgerId=ledgerId))
+    suspend fun previewNative(ledgerId:String,format:String,filename:String,content:String,account:String):ImportPreview =
+        apiJson.decodeFromString(request("imports/$format/preview",HttpMethod.Post,apiJson.encodeToString(AlipayRequest(filename,content,account)),ledgerId=ledgerId))
     suspend fun commit(ledgerId:String,preview: ImportPreview, confirmSimilar: Boolean): CommitResult =
         apiJson.decodeFromString(request("imports/${preview.id}/commit", HttpMethod.Post, apiJson.encodeToString(CommitRequest(preview.ledgerVersion,confirmSimilar)),ledgerId=ledgerId))
     suspend fun create(ledgerId:String,input: TransactionInput, key: String): LedgerTransaction =

@@ -7,6 +7,8 @@ import (
 )
 
 type ImportSummary struct {
+	Errors        int           `json:"errors"`
+	Pending       int           `json:"pending"`
 	ID            string        `json:"id"`
 	Filename      string        `json:"filename"`
 	ParserVersion int           `json:"parserVersion"`
@@ -39,7 +41,7 @@ type ImportDetail struct {
 func scanImport(row interface{ Scan(...any) error }) (ImportSummary, error) {
 	var item ImportSummary
 	var committed, result sql.NullString
-	err := row.Scan(&item.ID, &item.Filename, &item.ParserVersion, &item.CreatedAt, &committed, &result)
+	err := row.Scan(&item.ID, &item.Filename, &item.ParserVersion, &item.CreatedAt, &committed, &result, &item.Errors, &item.Pending)
 	if err != nil {
 		return item, err
 	}
@@ -53,7 +55,7 @@ func scanImport(row interface{ Scan(...any) error }) (ImportSummary, error) {
 	return item, err
 }
 
-const importSummaryColumns = "id,filename,parser_version,created_at,committed_at,result_json"
+const importSummaryColumns = "id,filename,parser_version,created_at,committed_at,result_json,COALESCE(json_array_length(preview_json,'$.errors'),0),COALESCE(json_array_length(preview_json,'$.pending'),0)"
 
 func (s *Store) ImportHistory(page int) (ImportHistory, error) {
 	s.mu.Lock()
@@ -139,6 +141,42 @@ func (s *Store) ImportDetail(id string) (ImportDetail, error) {
 			return out, err
 		}
 		out.Evidence = append(out.Evidence, e)
+	}
+	return out, rows.Err()
+}
+
+type TransactionSource struct {
+	ImportID    string `json:"importId"`
+	Filename    string `json:"filename"`
+	Line        int    `json:"line"`
+	Disposition string `json:"disposition"`
+}
+
+func (s *Store) TransactionSources(id string) ([]TransactionSource, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []TransactionSource{}
+	if e := s.authorize(s.db, false); e != nil {
+		return out, e
+	}
+	var found int
+	if e := s.db.QueryRow("SELECT COUNT(*) FROM transactions WHERE ledger_id=? AND id=?", s.ledgerID, id).Scan(&found); e != nil {
+		return out, e
+	}
+	if found == 0 {
+		return out, problem("not_found", "找不到该交易")
+	}
+	rows, e := s.db.Query(`SELECT i.id,i.filename,sr.line,sr.disposition FROM source_records sr JOIN imports i ON i.id=sr.import_id WHERE i.ledger_id=? AND sr.transaction_id=? ORDER BY i.created_at DESC,i.id,sr.line LIMIT 100`, s.ledgerID, id)
+	if e != nil {
+		return out, e
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var row TransactionSource
+		if e = rows.Scan(&row.ImportID, &row.Filename, &row.Line, &row.Disposition); e != nil {
+			return out, e
+		}
+		out = append(out, row)
 	}
 	return out, rows.Err()
 }

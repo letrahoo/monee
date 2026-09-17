@@ -15,12 +15,14 @@ internal actual fun platformClient() = HttpClient(CIO) {
     install(HttpTimeout) { requestTimeoutMillis = 20_000; connectTimeoutMillis = 5_000 }
 }
 
-internal actual suspend fun discoverConnection(client: HttpClient): Connection = withContext(Dispatchers.IO) {
-    val dataDir = System.getenv("MONEE_DATA_DIR")?.let { Path.of(it) } ?: run {
+internal fun desktopDataDirectory():Path = System.getenv("MONEE_DATA_DIR")?.let { Path.of(it) } ?: run {
         val home = Path.of(System.getProperty("user.home"))
         if (System.getProperty("os.name").startsWith("Mac")) home.resolve("Library/Application Support/Monee")
         else (System.getenv("XDG_CONFIG_HOME")?.let { Path.of(it) } ?: home.resolve(".config")).resolve("Monee")
     }
+
+internal actual suspend fun discoverConnection(client: HttpClient): Connection = withContext(Dispatchers.IO) {
+    val dataDir = desktopDataDirectory()
     val connection = apiJson.decodeFromString<Connection>(Files.readString(dataDir.resolve("connection.json")))
     val uri = java.net.URI(connection.baseUrl)
     require(uri.scheme == "http" && uri.host == "127.0.0.1" && uri.port in 1..65535)
@@ -55,3 +57,18 @@ internal actual suspend fun openLoginURL(url:String) = withContext(Dispatchers.I
     java.awt.Desktop.getDesktop().browse(java.net.URI(url))
 }
 internal actual suspend fun returnToApplication() { DesktopReturn.activate() }
+
+actual suspend fun chooseNativeBill(format:String): PickedAlipay? {
+    val selected = withContext(Dispatchers.Swing) {
+        val dialog = FileDialog(null as Frame?, if(format=="wechat")"选择微信原始 XLSX 账单" else "选择支付宝原始 CSV 账单", FileDialog.LOAD)
+        try {
+            dialog.setFilenameFilter { _, name -> name.endsWith(if(format=="wechat")".xlsx"else".csv", ignoreCase = true) }
+            dialog.isVisible = true
+            dialog.file?.let { Path.of(dialog.directory, it) }
+        } finally { dialog.dispose() }
+    } ?: return null
+    return withContext(Dispatchers.IO) {
+        if (Files.size(selected) > 2 * 1024 * 1024) throw LedgerException("账单文件不能超过 2 MiB")
+        PickedAlipay(selected.fileName.toString(), java.util.Base64.getEncoder().encodeToString(Files.readAllBytes(selected)))
+    }
+}

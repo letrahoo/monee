@@ -27,15 +27,24 @@ data class Dashboard(
 )
 
 @Serializable data class ImportRow(val line: Int, val record: LedgerTransaction, val status: String, val message: String)
+@Serializable data class PendingImportRow(val line:Int,val date:String,val merchant:String,val amount:String,val reason:String)
+@Serializable data class AlipayRequest(val filename:String,val contentBase64:String,val account:String)
+@Serializable data class PickedAlipay(val name:String,val contentBase64:String)
 @Serializable
 data class ImportPreview(
     val id: String, val filename: String, val ledgerVersion: Long, val rows: List<ImportRow>,
     val newCount: Int, val duplicateCount: Int, val similarCount: Int,
     val errors: List<String>, val alreadyCommitted: Boolean,
+    val pending: List<PendingImportRow> = emptyList(),
+    val sourceAccount:String="",
+    val format:String="standard",
+    val sourceDocument:SourceDocument?=null,
 )
+@Serializable data class SourceDocument(val parser:String,val parserVersion:Int,val records:List<SourceRow> = emptyList())
+@Serializable data class SourceRow(val line:Int,val raw:Map<String,String> = emptyMap())
 @Serializable data class ImportRequest(val filename: String, val csv: String)
 @Serializable data class CommitRequest(val ledgerVersion: Long, val confirmSimilar: Boolean)
-@Serializable data class CommitResult(val importId: String, val added: Int, val skipped: Int, val month: String)
+@Serializable data class CommitResult(val importId: String, val added: Int, val skipped: Int, val month: String, val pending:Int = 0)
 @Serializable data class Connection(val baseUrl: String)
 @Serializable data class PickedCSV(val name: String, val text: String)
 @Serializable data class APIProblem(val code: String = "error", val message: String = "请求失败")
@@ -75,3 +84,12 @@ data class LoginProof(val verifier:String,val challenge:String)
 
 @Serializable data class RegisteredUser(val id:String,val name:String,val enabled:Boolean,val role:String,val version:Long)
 @Serializable data class RegisteredUsers(val users:List<RegisteredUser>)
+
+@Serializable data class ImportSummary(val id:String,val filename:String,val createdAt:String,val committedAt:String?=null,val result:CommitResult?=null,val errors:Int=0,val pending:Int=0)
+@Serializable data class ImportHistory(val imports:List<ImportSummary>,val page:Int,val pageSize:Int,val totalCount:Int)
+@Serializable data class ImportDetail(val parserVersion:Int,val preview:ImportPreview)
+
+@Serializable data class AnnotationInput(val version:Long,val category:String,val note:String)
+@Serializable data class AnnotationRevision(val before:LedgerTransaction,val after:LedgerTransaction,val createdAt:String)
+
+@Serializable data class TransactionSource(val importId:String,val filename:String,val line:Int,val disposition:String)
