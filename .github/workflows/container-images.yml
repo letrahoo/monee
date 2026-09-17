@@ -69,7 +69,7 @@ jobs:
           container="monee-${IMAGE_KIND}-smoke"
           trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
           if [[ "$IMAGE_KIND" == api ]]; then
-            docker run --detach --rm --name "$container" \
+            docker run --detach --name "$container" \
               --publish 127.0.0.1:4173:4173 \
               --env MONEE_PUBLIC_URL=https://monee.test \
               "$IMAGE" -listen 0.0.0.0:4173 -data-dir /tmp/monee
@@ -91,7 +91,8 @@ jobs:
               -H 'Host: monee.test' -H 'Origin: https://monee.test' \
               http://127.0.0.1:4173/api/v1/dashboard)" = 401
           else
-            docker run --detach --rm --name "$container" \
+            docker run --detach --name "$container" \
+              --add-host api:127.0.0.1 \
               --publish 127.0.0.1:8080:8080 "$IMAGE"
             for attempt in {1..30}; do
               if curl --fail --silent --show-error \

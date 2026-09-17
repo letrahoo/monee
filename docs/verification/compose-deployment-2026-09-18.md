@@ -20,6 +20,7 @@
 - 合成 GitHub OAuth 启动流返回正式 HTTPS 回调地址；绑定 Cookie 实测包含 `Secure`、`HttpOnly`、`SameSite=Lax`，没有使用真实密钥或向提供方完成授权。
 - 阿里云 ECS 仅做只读预检：Docker 25.0.0、Compose 2.24.1、Buildx 0.12.1 可用，现有 Nginx Proxy Manager 和其他容器未变更。
 - PR #12 首轮 API 镜像构建及冒烟通过；Web 镜像首次构建发现 Kotlin/Wasm 使用的 Node 25 缺少 `libatomic.so.1`，已在构建阶段显式补充最小 `libatomic1` 依赖并重新触发 CI。
+- Web 镜像第二轮构建已通过，独立冒烟因没有 Compose 提供的 `api` DNS 名称而退出；已为单镜像检查加入占位解析并保留失败日志。正式 Compose 仍使用内部网络服务发现，不使用该占位配置。
 
 ## 尚未完成
 
