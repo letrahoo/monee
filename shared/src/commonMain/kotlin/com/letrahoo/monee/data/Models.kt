@@ -116,3 +116,6 @@ data class LoginProof(val verifier:String,val challenge:String)
 )
 @Serializable data class RedactedIdentifier(val kind:String,val ref:String)
 @Serializable data class RedactionTreatment(val recordRef:String,val merchant:String,val note:String,val account:String,val identifierCount:Int)
+
+@Serializable data class ReviewQueueItem(val id:String,val importId:String,val filename:String,val line:Int,val format:String,val batchState:String,val sourceAccount:String="",val date:String,val merchant:String,val amount:String,val reason:String,val raw:Map<String,String> = emptyMap())
+@Serializable data class ReviewQueue(val items:List<ReviewQueueItem>,val page:Int,val pageSize:Int,val totalCount:Int,val format:String)

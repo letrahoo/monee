@@ -140,6 +140,43 @@ paths:
                 "$ref": "#/components/schemas/Transaction"
         default:
           "$ref": "#/components/responses/Error"
+  "/api/v1/review-queue":
+    get:
+      operationId: reviewQueue
+      description: |
+        Read retained pending rows from native Alipay and WeChat batches in the
+        selected ledger. Requires system admission and ledger membership; viewers
+        may read. Includes saved previews, committed batches, undone batches and
+        failed batches with recoverable pending rows. Excludes source lines already
+        booked or associated with a transaction. A file-level parse error without
+        pending rows does not appear here; consult import history for those errors.
+        Undo retains pending evidence. Each source occurrence is separate; rows
+        from different files are not deduplicated. This is read-only evidence and
+        does not create, classify, confirm or merge financial transactions.
+      parameters:
+      - in: header
+        name: X-Monee-Ledger
+        required: false
+        description: Explicit ledger selection; omission allowed only for a single membership.
+        schema: {type: string}
+      - in: query
+        name: page
+        schema: {type: integer, minimum: 1, maximum: 1000000, default: 1}
+      - in: query
+        name: format
+        description: Native source filter; omitted or empty means both supported formats.
+        schema: {type: string, enum: ['', alipay, wechat], default: ''}
+      responses:
+        '200':
+          description: |
+            Up to 50 rows. Batches are sorted by creation time descending, then ID
+            descending; rows within a batch are sorted by source line ascending.
+            Pages past the end return an empty items array. Raw source values are
+            private evidence, not validated transaction values or cloud-safe input.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReviewQueue'}
+        default: {$ref: '#/components/responses/Error'}
   "/api/v1/imports":
     get:
       operationId: listImports
@@ -1839,6 +1876,59 @@ components:
         filename: {type: string}
         line: {type: integer}
         disposition: {type: string, enum: [added, duplicate]}
+    ReviewQueue:
+      type: object
+      required: [items, page, pageSize, totalCount, format]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/ReviewQueueItem'}
+        page: {type: integer, minimum: 1, maximum: 1000000}
+        pageSize: {type: integer, const: 50}
+        totalCount:
+          type: integer
+          minimum: 0
+          description: Number of matching pending source occurrences across all pages.
+        format:
+          type: string
+          enum: ['', alipay, wechat]
+          description: Echoes the requested source filter; empty means both formats.
+    ReviewQueueItem:
+      type: object
+      required: [id, importId, filename, sourceAccount, line, format, batchState, date, merchant, amount, reason, raw]
+      properties:
+        id:
+          type: string
+          description: Stable source-occurrence key formed as importId followed by a colon and source line; not a transaction ID.
+        importId: {type: string, format: uuid}
+        filename: {type: string}
+        sourceAccount:
+          type: string
+          default: ''
+          description: Source account name retained on the batch, distinguishing wallets with identically named files; empty when unavailable.
+        line:
+          type: integer
+          description: Original source row or line number within this batch.
+        format: {type: string, enum: [alipay, wechat]}
+        batchState:
+          type: string
+          enum: [preview, committed, undone, failed]
+          description: State of the containing batch, not a confirmation state of this pending row.
+        date:
+          type: string
+          description: Retained source text; may be empty or invalid and is not guaranteed to be an ISO date.
+        merchant: {type: string}
+        amount:
+          type: string
+          description: Retained source amount text, not an integer minor-unit amount; may be empty or have invalid precision or formatting. Do not use directly in financial totals.
+        reason:
+          type: string
+          description: User-facing explanation of why this source row requires review.
+        raw:
+          type: object
+          additionalProperties: {type: string}
+          description: Original column names mapped to source text for this row only; empty if retained raw columns are unavailable. Private unredacted evidence, never a cloud-safe payload.
     ImportUndoRequest:
       type: object
       additionalProperties: false
