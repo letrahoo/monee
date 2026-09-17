@@ -53,6 +53,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
     var sourceLinks by remember { mutableStateOf<List<TransactionSource>>(emptyList()) }
     var sourceID by remember { mutableStateOf("") }
     var revisions by remember { mutableStateOf<List<AnnotationRevision>>(emptyList()) }
+    var corrections by remember { mutableStateOf<List<CorrectionRevision>>(emptyList()) }
     var revisionID by remember { mutableStateOf("") }
     var selectedID by remember { mutableStateOf<String?>(null) }
     var csv by remember { mutableStateOf("") }
@@ -236,9 +237,13 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                                         if(ledger.role!="viewer") AnnotationEditor(item,working,onSave={category,note->runAction {
                                             api.annotate(ledger.id,item.id,AnnotationInput(item.version,category,note));notice="分类与备注已保存";refresh++;revisionID=""
                                         }})
-                                        TextButton(onClick={runAction { revisions=api.annotationHistory(ledger.id,item.id);revisionID=item.id }},enabled=!working){Text("修改记录")}
+                                        if(ledger.role!="viewer") CorrectionEditor(item,working,
+                                            onPreview={change,accept->runAction { accept(api.previewCorrection(ledger.id,item.id,change)) }},
+                                            onConfirm={change->runAction { api.correct(ledger.id,item.id,change);notice="金额与收支性质已更正";refresh++;revisionID="" }})
+                                        TextButton(onClick={runAction { revisions=api.annotationHistory(ledger.id,item.id);corrections=api.correctionHistory(ledger.id,item.id);revisionID=item.id }},enabled=!working){Text("修改记录")}
                                         if(revisionID==item.id) {
-                                            if(revisions.isEmpty())Text("暂无修改记录",fontSize=12.sp,color=Muted)
+                                            if(revisions.isEmpty()&&corrections.isEmpty())Text("暂无修改记录",fontSize=12.sp,color=Muted)
+                                            corrections.forEach { revision -> Text("${revision.createdAt.take(19)} · ${if(revision.before.type=="income")"收入"else"支出"} ${formatMoney(revision.before.amountMinor.toLong())} → ${if(revision.after.type=="income")"收入"else"支出"} ${formatMoney(revision.after.amountMinor.toLong())}\n原因：${revision.reason}",fontSize=12.sp,color=Muted) }
                                             revisions.forEach { revision -> Text("${revision.createdAt.take(19)} · 分类：${revision.before.category} → ${revision.after.category}\n备注：${revision.before.note.ifBlank { "无" }} → ${revision.after.note.ifBlank { "无" }}",fontSize=12.sp,color=Muted) }
                                         }
                                         TextButton(onClick={selectedID=null}){Text("收起详情")}

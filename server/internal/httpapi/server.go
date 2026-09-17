@@ -74,6 +74,7 @@ func (a API) Handler() http.Handler {
 	a.registerLedgers(mux)
 	a.registerImports(mux)
 	a.registerAnnotations(mux)
+	a.registerCorrections(mux)
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"status": "ok", "apiVersion": 1, "schemaVersion": 2})
 	})

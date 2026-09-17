@@ -129,6 +129,9 @@ class LedgerApi {
     suspend fun preview(ledgerId:String,filename: String, csv: String): ImportPreview =
         apiJson.decodeFromString(request("imports/preview", HttpMethod.Post, apiJson.encodeToString(ImportRequest(filename,csv)),ledgerId=ledgerId))
     suspend fun annotate(ledgerId:String,id:String,input:AnnotationInput):LedgerTransaction = apiJson.decodeFromString(request("transactions/$id/annotation",HttpMethod.Patch,apiJson.encodeToString(input),ledgerId=ledgerId))
+    suspend fun previewCorrection(ledgerId:String,id:String,input:CorrectionInput):CorrectionPreview = apiJson.decodeFromString(request("transactions/$id/correction/preview",HttpMethod.Post,apiJson.encodeToString(input),ledgerId=ledgerId))
+    suspend fun correct(ledgerId:String,id:String,input:CorrectionInput):LedgerTransaction = apiJson.decodeFromString(request("transactions/$id/correction",HttpMethod.Patch,apiJson.encodeToString(input),ledgerId=ledgerId))
+    suspend fun correctionHistory(ledgerId:String,id:String):List<CorrectionRevision> = apiJson.decodeFromString(request("transactions/$id/corrections",ledgerId=ledgerId))
     suspend fun transactionSources(ledgerId:String,id:String):List<TransactionSource> = apiJson.decodeFromString(request("transactions/$id/sources",ledgerId=ledgerId))
     suspend fun annotationHistory(ledgerId:String,id:String):List<AnnotationRevision> = apiJson.decodeFromString(request("transactions/$id/annotations",ledgerId=ledgerId))
     suspend fun importHistory(ledgerId:String,page:Int):ImportHistory = apiJson.decodeFromString(request("imports",parameters=mapOf("page" to page.toString()),ledgerId=ledgerId))
