@@ -31,7 +31,6 @@ func ParseWeChatXLSX(raw []byte, account string) Document {
 	}
 	files := map[string][]byte{}
 	var expanded uint64
-	sheets := 0
 	for _, f := range z.File {
 		if f.UncompressedSize64 > 20<<20 {
 			return fail(0, "XLSX 条目超过 20 MiB")
@@ -43,8 +42,8 @@ func ParseWeChatXLSX(raw []byte, account string) Document {
 		if _, ok := files[f.Name]; ok {
 			return fail(0, "XLSX 存在重复条目")
 		}
-		if strings.HasPrefix(f.Name, "xl/worksheets/sheet") && strings.HasSuffix(f.Name, ".xml") {
-			sheets++
+		if strings.HasPrefix(f.Name, "xl/worksheets/") && strings.HasSuffix(f.Name, ".xml") && f.Name != "xl/worksheets/sheet1.xml" {
+			return fail(0, "目前仅支持单工作表的微信原始导出，请勿合并或改写工作表")
 		}
 		rc, e := f.Open()
 		if e != nil {
@@ -57,7 +56,7 @@ func ParseWeChatXLSX(raw []byte, account string) Document {
 		}
 		files[f.Name] = b
 	}
-	if sheets != 1 || len(files["xl/worksheets/sheet1.xml"]) == 0 {
+	if !singleWeChatWorksheet(files) {
 		return fail(0, "目前仅支持单工作表的微信原始导出，请勿合并或改写工作表")
 	}
 	type rich struct {
@@ -231,4 +230,87 @@ func ParseWeChatXLSX(raw []byte, account string) Document {
 		return fail(0, fmt.Sprintf("未找到微信账单记录（已读取 %d 行）", rowCount))
 	}
 	return d
+}
+
+// Part filenames alone cannot establish workbook completeness: worksheet parts
+// may have arbitrary names. Require the declared sheet, its relationship and
+// content type to agree before reading any financial rows.
+func singleWeChatWorksheet(files map[string][]byte) bool {
+	const worksheetType = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"
+	const worksheetContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"
+	const sheetPart = "/xl/worksheets/sheet1.xml"
+	if len(files[strings.TrimPrefix(sheetPart, "/")]) == 0 {
+		return false
+	}
+	var workbook struct {
+		XMLName xml.Name `xml:"http://schemas.openxmlformats.org/spreadsheetml/2006/main workbook"`
+		Sheets  []struct {
+			RelationshipID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+		} `xml:"sheets>sheet"`
+	}
+	if xml.Unmarshal(files["xl/workbook.xml"], &workbook) != nil || len(workbook.Sheets) != 1 || workbook.Sheets[0].RelationshipID == "" {
+		return false
+	}
+	var relations struct {
+		XMLName xml.Name `xml:"http://schemas.openxmlformats.org/package/2006/relationships Relationships"`
+		Items   []struct {
+			ID         string `xml:"Id,attr"`
+			Type       string `xml:"Type,attr"`
+			Target     string `xml:"Target,attr"`
+			TargetMode string `xml:"TargetMode,attr"`
+		} `xml:"Relationship"`
+	}
+	if xml.Unmarshal(files["xl/_rels/workbook.xml.rels"], &relations) != nil {
+		return false
+	}
+	seenIDs := map[string]bool{}
+	worksheetCount := 0
+	for _, relation := range relations.Items {
+		if relation.ID == "" || seenIDs[relation.ID] {
+			return false
+		}
+		seenIDs[relation.ID] = true
+		if relation.Type != worksheetType {
+			if relation.ID == workbook.Sheets[0].RelationshipID {
+				return false
+			}
+			continue
+		}
+		worksheetCount++
+		if relation.ID != workbook.Sheets[0].RelationshipID ||
+			(relation.TargetMode != "" && relation.TargetMode != "Internal") ||
+			(relation.Target != "worksheets/sheet1.xml" && relation.Target != sheetPart) {
+			return false
+		}
+	}
+	if worksheetCount != 1 {
+		return false
+	}
+	var contentTypes struct {
+		XMLName xml.Name `xml:"http://schemas.openxmlformats.org/package/2006/content-types Types"`
+		Items   []struct {
+			PartName    string `xml:"PartName,attr"`
+			ContentType string `xml:"ContentType,attr"`
+		} `xml:"Override"`
+	}
+	if xml.Unmarshal(files["[Content_Types].xml"], &contentTypes) != nil {
+		return false
+	}
+	worksheetCount = 0
+	seenParts := map[string]bool{}
+	for _, item := range contentTypes.Items {
+		if item.PartName == "" || seenParts[item.PartName] {
+			return false
+		}
+		seenParts[item.PartName] = true
+		if item.ContentType == worksheetContentType {
+			worksheetCount++
+			if item.PartName != sheetPart {
+				return false
+			}
+		} else if item.PartName == sheetPart {
+			return false
+		}
+	}
+	return worksheetCount == 1
 }

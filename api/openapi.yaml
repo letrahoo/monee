@@ -1266,8 +1266,8 @@ paths:
               required: [version, category, note]
               properties:
                 version: {type: integer, format: int64, minimum: 1}
-                category: {type: string, maxLength: 100}
-                note: {type: string, maxLength: 500}
+                category: {type: string, maxLength: 200}
+                note: {type: string, maxLength: 1000}
   "/api/v1/transactions/{id}/annotations":
     get:
       operationId: transactionAnnotations

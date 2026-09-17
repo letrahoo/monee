@@ -45,8 +45,13 @@ func (s *Store) Annotate(id string, in AnnotationInput) (Transaction, error) {
 	if in.Category == "" {
 		in.Category = "未分类"
 	}
-	if len([]rune(in.Category)) > 100 || len([]rune(in.Note)) > 500 {
-		return out, problem("invalid", "分类最多 100 字，备注最多 500 字")
+	// Match creation/import limits so editing one field never requires truncating
+	// another valid field already saved on the transaction.
+	if len([]rune(in.Category)) > 200 || strings.ContainsAny(in.Category, "\x00\r\n") {
+		return out, problem("invalid", "分类最多 200 字，不支持换行或控制字符")
+	}
+	if len([]rune(in.Note)) > 1000 || strings.ContainsRune(in.Note, 0) {
+		return out, problem("invalid", "备注最多 1000 字，不支持空字符")
 	}
 	out = before
 	out.Category = in.Category

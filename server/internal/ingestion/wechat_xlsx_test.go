@@ -91,3 +91,96 @@ func TestWeChatRejectsCorruptAmbiguousAndFormulaFiles(t *testing.T) {
 		}
 	}
 }
+
+func editWeChatPackage(t *testing.T, raw []byte, edit func(map[string][]byte)) []byte {
+	t.Helper()
+	r, e := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if e != nil {
+		t.Fatal(e)
+	}
+	parts := map[string][]byte{}
+	for _, f := range r.File {
+		reader, e := f.Open()
+		if e != nil {
+			t.Fatal(e)
+		}
+		parts[f.Name], e = io.ReadAll(reader)
+		reader.Close()
+		if e != nil {
+			t.Fatal(e)
+		}
+	}
+	edit(parts)
+	var result bytes.Buffer
+	w := zip.NewWriter(&result)
+	for name, data := range parts {
+		writer, e := w.Create(name)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = writer.Write(data); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if e = w.Close(); e != nil {
+		t.Fatal(e)
+	}
+	return result.Bytes()
+}
+
+func TestWeChatRejectsIncompleteOrAmbiguousWorkbook(t *testing.T) {
+	const workbook = "xl/workbook.xml"
+	const relations = "xl/_rels/workbook.xml.rels"
+	const contentTypes = "[Content_Types].xml"
+	const sheet = "xl/worksheets/sheet1.xml"
+	replace := func(part, old, next string) func(map[string][]byte) {
+		return func(parts map[string][]byte) {
+			parts[part] = bytes.Replace(parts[part], []byte(old), []byte(next), 1)
+		}
+	}
+	for name, edit := range map[string]func(map[string][]byte){
+		"missing workbook":                               func(p map[string][]byte) { delete(p, workbook) },
+		"missing relationship file":                      func(p map[string][]byte) { delete(p, relations) },
+		"missing content types":                          func(p map[string][]byte) { delete(p, contentTypes) },
+		"missing sheet part":                             func(p map[string][]byte) { delete(p, sheet) },
+		"corrupt workbook":                               func(p map[string][]byte) { p[workbook] = []byte("<workbook>") },
+		"corrupt relationships":                          func(p map[string][]byte) { p[relations] = []byte("<Relationships>") },
+		"missing sheet relationship":                     replace(workbook, `r:id="rId1"`, `r:id="missing"`),
+		"unnamespaced sheet relationship":                replace(workbook, `r:id="rId1"`, `id="rId1"`),
+		"missing relationship target":                    replace(relations, `Target="worksheets/sheet1.xml"`, ``),
+		"misdirected relationship":                       replace(relations, `Target="worksheets/sheet1.xml"`, `Target="worksheets/missing.xml"`),
+		"external relationship":                          replace(relations, `Target="worksheets/sheet1.xml"`, `Target="worksheets/sheet1.xml" TargetMode="External"`),
+		"remote relationship":                            replace(relations, `Target="worksheets/sheet1.xml"`, `Target="https://example.invalid/sheet1.xml"`),
+		"wrong relationship type":                        replace(relations, `/relationships/worksheet"`, `/relationships/styles"`),
+		"wrong worksheet content type":                   replace(contentTypes, `application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml`, `application/xml`),
+		"undeclared second worksheet":                    func(p map[string][]byte) { p["xl/worksheets/other.xml"] = p[sheet] },
+		"unreferenced worksheet relation":                replace(relations, `</Relationships>`, `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`),
+		"duplicate relationship ID":                      replace(relations, `</Relationships>`, `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`),
+		"extra worksheet outside conventional directory": replace(contentTypes, `</Types>`, `<Override PartName="/other.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`),
+		"duplicate worksheet content type":               replace(contentTypes, `</Types>`, `<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`),
+		"declared second worksheet with arbitrary part name": func(p map[string][]byte) {
+			replace(workbook, `</sheets>`, `<sheet name="Second" sheetId="2" r:id="rId2"/></sheets>`)(p)
+			replace(relations, `</Relationships>`, `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/other.xml"/></Relationships>`)(p)
+			replace(contentTypes, `</Types>`, `<Override PartName="/xl/worksheets/other.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`)(p)
+			p["xl/worksheets/other.xml"] = p[sheet]
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := ParseWeChatXLSX(editWeChatPackage(t, wechatFixture(t), edit), "wallet")
+			if len(d.Issues) == 0 || len(d.Records) != 0 {
+				t.Fatal("ambiguous package must be rejected before reading any rows", d)
+			}
+		})
+	}
+}
+
+func TestWeChatAcceptsPackageAbsoluteWorksheetTarget(t *testing.T) {
+	raw := editWeChatPackage(t, wechatFixture(t), func(parts map[string][]byte) {
+		const name = "xl/_rels/workbook.xml.rels"
+		parts[name] = bytes.Replace(parts[name], []byte(`Target="worksheets/sheet1.xml"`), []byte(`Target="/xl/worksheets/sheet1.xml" TargetMode="Internal"`), 1)
+	})
+	d := ParseWeChatXLSX(raw, "wallet")
+	if len(d.Issues) != 0 || len(d.Records) != 4 {
+		t.Fatal("valid package-absolute worksheet relationship rejected", d)
+	}
+}
