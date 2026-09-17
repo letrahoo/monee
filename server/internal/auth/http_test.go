@@ -28,6 +28,15 @@ func serviceForTest(t *testing.T) (*Service, http.Handler) {
 	s.Register(mux)
 	return s, mux
 }
+
+func TestProductionServiceRequiresSecureCookies(t *testing.T) {
+	if NewService(testStore(t), nil, "https://finance.letra.xin").secureCookies != true {
+		t.Fatal("HTTPS service did not enable secure cookies")
+	}
+	if NewService(testStore(t), nil, "http://127.0.0.1:4173").secureCookies {
+		t.Fatal("loopback HTTP unexpectedly enabled secure cookies")
+	}
+}
 func call(h http.Handler, method, path string, body any, cookies []*http.Cookie, headers map[string]string) *httptest.ResponseRecorder {
 	data := ""
 	if body != nil {

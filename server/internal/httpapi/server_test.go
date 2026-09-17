@@ -84,6 +84,26 @@ func TestLoopbackAuthAndOriginBoundary(t *testing.T) {
 		t.Fatal("DNS rebinding host accepted")
 	}
 }
+
+func TestProductionOriginBoundary(t *testing.T) {
+	h := API{Host: "finance.letra.xin", Origin: "https://finance.letra.xin"}.Handler()
+	for _, tc := range []struct {
+		host, origin string
+		status       int
+	}{
+		{"finance.letra.xin", "https://finance.letra.xin", 200},
+		{"finance.letra.xin", "http://finance.letra.xin", 403},
+		{"evil.example", "https://finance.letra.xin", 403},
+	} {
+		r := httptest.NewRequest("GET", "http://"+tc.host+"/api/v1/health", nil)
+		r.Header.Set("Origin", tc.origin)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != tc.status {
+			t.Fatalf("host=%q origin=%q: got %d want %d", tc.host, tc.origin, w.Code, tc.status)
+		}
+	}
+}
 func TestRealAPIWriteReadAndValidation(t *testing.T) {
 	h, token := apiForTest(t)
 	headers := map[string]string{"Authorization": "Bearer " + token, "Content-Type": "application/json", "Idempotency-Key": "http-test-request-0001"}

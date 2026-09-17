@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -30,13 +31,18 @@ func run() error {
 		defaultData = filepath.Join(base, "Monee")
 	}
 	dataDir := flag.String("data-dir", defaultData, "private local ledger directory")
-	listen := flag.String("listen", "127.0.0.1:4173", "IPv4 loopback address")
+	listen := flag.String("listen", "127.0.0.1:4173", "IPv4 listen address")
+	publicURL := flag.String("public-url", os.Getenv("MONEE_PUBLIC_URL"), "browser-visible origin, required when listening outside loopback")
 	webDir := flag.String("web-dir", "", "built Web asset directory")
 	authConfigPath := flag.String("auth-config", "", "private OAuth configuration file (defaults to auth.json in data directory)")
 	flag.Parse()
 	host, port, err := net.SplitHostPort(*listen)
-	if err != nil || host != "127.0.0.1" || port == "0" {
-		return errors.New("listen must be 127.0.0.1 with a fixed non-zero port")
+	if err != nil || (host != "127.0.0.1" && host != "0.0.0.0") || port == "0" {
+		return errors.New("listen must use 127.0.0.1 or 0.0.0.0 with a fixed non-zero port")
+	}
+	baseURL, requestHost, err := deploymentURLs(host, port, *publicURL)
+	if err != nil {
+		return err
 	}
 	*dataDir, err = filepath.Abs(*dataDir)
 	if err != nil {
@@ -71,7 +77,6 @@ func run() error {
 	}
 	defer accessStore.Close()
 	defer store.Close()
-	baseURL := "http://" + listener.Addr().String()
 	access := auth.NewService(accessStore, auth.NewProviders(config, baseURL), baseURL)
 	connection, err := newServiceConnection(baseURL)
 	if err != nil {
@@ -86,14 +91,14 @@ func run() error {
 		// Failure disables only this optional capability; never log the key or path.
 		log.Print("Redaction preview unavailable: private key could not be loaded")
 	}
-	api := httpapi.API{Redaction: projector, Store: store, Auth: access, Host: listener.Addr().String(), WebDir: *webDir,
+	api := httpapi.API{Redaction: projector, Store: store, Auth: access, Host: requestHost, Origin: baseURL, WebDir: *webDir,
 		InstanceID: connection.InstanceID, ServiceProtocol: connection.ServiceProtocol}
 	server := &http.Server{Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
-	log.Printf("Monee local ledger ready at http://%s", listener.Addr())
+	log.Printf("Monee ledger ready at %s", baseURL)
 	select {
 	case err = <-done:
 		if errors.Is(err, http.ErrServerClosed) {
@@ -106,8 +111,55 @@ func run() error {
 		return server.Shutdown(shutdown)
 	}
 }
+
+func deploymentURLs(listenHost, listenPort, configured string) (string, string, error) {
+	if configured == "" {
+		if listenHost != "127.0.0.1" {
+			return "", "", errors.New("public-url is required when listening outside loopback")
+		}
+		configured = "http://" + net.JoinHostPort(listenHost, listenPort)
+	}
+	u, err := url.Parse(configured)
+	if err != nil || !u.IsAbs() || u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return "", "", errors.New("public-url must be an absolute origin without credentials, path, query, or fragment")
+	}
+	if u.Scheme != "https" && !(u.Scheme == "http" && u.Hostname() == "127.0.0.1") {
+		return "", "", errors.New("public-url must use HTTPS except for 127.0.0.1")
+	}
+	u.Path = ""
+	return u.String(), u.Host, nil
+}
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
+		if err := checkHealth(); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func checkHealth() error {
+	publicURL := os.Getenv("MONEE_PUBLIC_URL")
+	u, err := url.Parse(publicURL)
+	if err != nil || u.Host == "" {
+		return errors.New("MONEE_PUBLIC_URL is required for the container healthcheck")
+	}
+	req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:4173/api/v1/health", nil)
+	if err != nil {
+		return err
+	}
+	req.Host = u.Host
+	client := http.Client{Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("unexpected redirect") }}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("health endpoint returned %s", resp.Status)
+	}
+	return nil
 }

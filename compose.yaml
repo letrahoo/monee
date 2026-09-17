@@ -1,0 +1,99 @@
+name: monee
+
+services:
+  data-init:
+    image: alpine:3.22
+    restart: "no"
+    user: "0:0"
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        test -s /run/monee-auth/auth.json
+        cp /run/monee-auth/auth.json /data/auth.json
+        chown 65532:65532 /data /data/auth.json
+        chmod 0700 /data
+        chmod 0600 /data/auth.json
+    volumes:
+      - monee-data:/data
+      - type: bind
+        source: ${MONEE_AUTH_DIR:-./secrets}
+        target: /run/monee-auth
+        read_only: true
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:size=1m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+
+  api:
+    image: ${MONEE_API_IMAGE:-ghcr.io/letrahoo/monee-api}:${MONEE_IMAGE_TAG:?set MONEE_IMAGE_TAG to an immutable sha tag}
+    restart: unless-stopped
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
+    environment:
+      MONEE_PUBLIC_URL: ${MONEE_PUBLIC_URL:?set MONEE_PUBLIC_URL to the HTTPS origin}
+    command: ["-listen", "0.0.0.0:4173", "-data-dir", "/data", "-auth-config", "/data/auth.json"]
+    volumes:
+      - monee-data:/data
+    networks:
+      - private
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "/monee-server", "healthcheck"]
+      interval: 15s
+      timeout: 4s
+      retries: 5
+      start_period: 10s
+
+  web:
+    image: ${MONEE_WEB_IMAGE:-ghcr.io/letrahoo/monee-web}:${MONEE_IMAGE_TAG:?set MONEE_IMAGE_TAG to an immutable sha tag}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      private:
+      edge:
+        aliases:
+          - monee-web
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/cache/nginx:size=16m,mode=0755
+      - /var/run:size=1m,mode=0755
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/index.html"]
+      interval: 15s
+      timeout: 4s
+      retries: 5
+
+networks:
+  private:
+    internal: true
+  edge:
+    external: true
+    name: ${MONEE_EDGE_NETWORK:-monee-edge}
+
+volumes:
+  monee-data:
+    name: ${MONEE_DATA_VOLUME:-monee-data}

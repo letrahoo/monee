@@ -19,12 +19,12 @@ import (
 )
 
 type API struct {
-	Redaction       *redaction.Projector
-	Store           *ledger.Store
-	Host, WebDir    string
-	Auth            *auth.Service
-	InstanceID      string
-	ServiceProtocol int
+	Redaction            *redaction.Projector
+	Store                *ledger.Store
+	Host, Origin, WebDir string
+	Auth                 *auth.Service
+	InstanceID           string
+	ServiceProtocol      int
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -211,8 +211,12 @@ func (a API) Handler() http.Handler {
 		site := r.Header.Get("Sec-Fetch-Site")
 		callback := r.Method == "GET" && a.Auth != nil && a.Auth.IsCallback(r.URL.Path)
 		navigation := r.Method == "GET" && r.Header.Get("Sec-Fetch-Mode") == "navigate" && (r.URL.Path == "/" || r.URL.Path == "/auth/begin" || r.URL.Path == "/auth/result")
-		if r.Host != a.Host || (!callback && origin != "" && origin != "http://"+a.Host) || ((site == "cross-site" || site == "same-site") && !callback && !navigation) {
-			writeJSON(w, 403, map[string]string{"code": "origin", "message": "拒绝非本地同源访问"})
+		expectedOrigin := a.Origin
+		if expectedOrigin == "" {
+			expectedOrigin = "http://" + a.Host
+		}
+		if r.Host != a.Host || (!callback && origin != "" && origin != expectedOrigin) || ((site == "cross-site" || site == "same-site") && !callback && !navigation) {
+			writeJSON(w, 403, map[string]string{"code": "origin", "message": "拒绝非同源访问"})
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/api/v1/health" && !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") && !strings.HasPrefix(r.URL.Path, "/api/v1/admin/") {

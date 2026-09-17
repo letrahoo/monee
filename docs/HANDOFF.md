@@ -1,6 +1,16 @@
 # 开发交接
 
-更新：2026-09-14。本文是换电脑、换会话或换开发者的入口。功能基线：`3fde5bf`，交接文档基线：`a6ca673`；完整代码与文档已补合到 main，后续提交见 Git 历史。真实凭据、身份配置和账本不在仓库内。
+更新：2026-09-18。本文是换电脑、换会话或换开发者的入口。当前主干基线为 `f0b06a4`；后续提交见 Git 历史，当前未提交工作见下方接续章节。真实凭据、身份配置和账本不在仓库内。
+
+## 当前接续：HTTPS 容器化生产部署（2026-09-18）
+
+当前分支 `feat/compose-deployment` 基于 main `f0b06a4`，对应 Notion M-38，仍为未提交工作区，不得当作已进入主干或已上线。
+
+- 新增 Go API / Kotlin-Wasm Web 双镜像、Compose 编排、GHCR 构建发布工作流、非 root/只读运行约束、健康检查、同源反向代理和固定 SHA 回滚流程。
+- Go 服务新增显式 HTTPS 公网 Origin；生产 Cookie 使用 Secure，Host/Origin 防护继续生效。本地回环 HTTP 保持兼容。
+- API 镜像携带一致性数据库快照/离线恢复工具；OAuth 配置、`redaction.key` 与数据库快照仍须分别加密备份。
+- Go race/vet、共享 JVM 测试、Web 生产构建、Mac 分发构建及本机生产 Origin/Cookie 合成验证通过。
+- 本机无 Docker；阿里云只读预检确认 Docker/Compose 可用，但候选源码尚未获准上传，因此镜像构建、Compose 双容器联调、PR CI、正式 OAuth/证书及生产切换均未完成。完整记录见 [M-38 验证](verification/compose-deployment-2026-09-18.md)。
 
 ## 当前接续：微信 CSV 与脱敏预览（2026-09-17）
 
