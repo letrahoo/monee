@@ -93,3 +93,7 @@ data class LoginProof(val verifier:String,val challenge:String)
 @Serializable data class AnnotationRevision(val before:LedgerTransaction,val after:LedgerTransaction,val createdAt:String)
 
 @Serializable data class TransactionSource(val importId:String,val filename:String,val line:Int,val disposition:String)
+
+@Serializable data class CorrectionInput(val version:Long,val type:String,val amountMinor:String,val reason:String)
+@Serializable data class CorrectionPreview(val before:LedgerTransaction,val after:LedgerTransaction,val incomeDeltaMinor:String,val expenseDeltaMinor:String,val netDeltaMinor:String)
+@Serializable data class CorrectionRevision(val before:LedgerTransaction,val after:LedgerTransaction,val reason:String,val createdAt:String)
