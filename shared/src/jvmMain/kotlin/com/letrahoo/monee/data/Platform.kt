@@ -55,9 +55,9 @@ internal actual suspend fun returnToApplication() { DesktopReturn.activate() }
 
 actual suspend fun chooseNativeBill(format:String): PickedAlipay? {
     val selected = withContext(Dispatchers.Swing) {
-        val dialog = FileDialog(null as Frame?, if(format=="wechat")"选择微信原始 XLSX 账单" else "选择支付宝原始 CSV 账单", FileDialog.LOAD)
+        val dialog = FileDialog(null as Frame?, if(format=="wechat")"选择微信 CSV 或 XLSX 账单" else "选择支付宝原始 CSV 账单", FileDialog.LOAD)
         try {
-            dialog.setFilenameFilter { _, name -> name.endsWith(if(format=="wechat")".xlsx"else".csv", ignoreCase = true) }
+            dialog.setFilenameFilter { _, name -> name.endsWith(".csv", ignoreCase = true) || (format=="wechat" && name.endsWith(".xlsx", ignoreCase = true)) }
             dialog.isVisible = true
             dialog.file?.let { Path.of(dialog.directory, it) }
         } finally { dialog.dispose() }

@@ -17,6 +17,7 @@ import (
 
 	"github.com/letrahoo/monee/server/internal/auth"
 	"github.com/letrahoo/monee/server/internal/httpapi"
+	"github.com/letrahoo/monee/server/internal/redaction"
 )
 
 func run() error {
@@ -80,7 +81,12 @@ func run() error {
 	if err = publishConnection(*dataDir, connection); err != nil {
 		return err
 	}
-	api := httpapi.API{Store: store, Auth: access, Host: listener.Addr().String(), WebDir: *webDir,
+	projector, keyErr := redaction.LoadOrCreate(*dataDir)
+	if keyErr != nil {
+		// Failure disables only this optional capability; never log the key or path.
+		log.Print("Redaction preview unavailable: private key could not be loaded")
+	}
+	api := httpapi.API{Redaction: projector, Store: store, Auth: access, Host: listener.Addr().String(), WebDir: *webDir,
 		InstanceID: connection.InstanceID, ServiceProtocol: connection.ServiceProtocol}
 	server := &http.Server{Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

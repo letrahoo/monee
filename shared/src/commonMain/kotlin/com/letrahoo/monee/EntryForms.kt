@@ -31,7 +31,7 @@ internal fun ImportPanel(csv:String,filename:String,preview:ImportPreview?,confi
         Column(Modifier.fillMaxWidth().padding(22.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
             Text("导入账单",fontSize=21.sp,fontWeight=FontWeight.Bold,color=Pine)
             ImportSourceSelector(format,working,onMode)
-            Text(if(wechat)"选择微信导出的 XLSX。最多 1000 条、2 MB。"else if(native)"直接选择支付宝导出的 CSV。最多 1000 条、2 MB。"else"按模板整理人民币收入和支出，最多 1000 行、2 MB。",color=Muted,fontSize=12.sp)
+            Text(if(wechat)"选择微信账单 CSV 或 XLSX。最多 1000 条、2 MB。"else if(native)"直接选择支付宝导出的 CSV。最多 1000 条、2 MB。"else"按模板整理人民币收入和支出，最多 1000 行、2 MB。",color=Muted,fontSize=12.sp)
             if(native) {
                 OutlinedTextField(sourceAccount,onAccount,Modifier.widthIn(max=460.dp).fillMaxWidth(),label={Text("来源账户名称")},singleLine=true,enabled=!working)
                 Text("同一来源账户请保持名称一致；多个账户使用不同名称。",fontSize=12.sp,color=Muted)
@@ -41,7 +41,7 @@ internal fun ImportPanel(csv:String,filename:String,preview:ImportPreview?,confi
                 Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                         Text(if((native&&hasNativeFile)||csv.isNotBlank()||preview!=null)filename else "尚未选择文件",color=Ink,fontSize=14.sp,fontWeight=FontWeight.Medium)
-                        Text(if(wechat)"微信导出的 XLSX"else if(native)"支付宝导出的 CSV" else "按模板整理的 CSV",color=Muted,fontSize=12.sp)
+                        Text(if(wechat)"微信 CSV / XLSX"else if(native)"支付宝导出的 CSV" else "按模板整理的 CSV",color=Muted,fontSize=12.sp)
                     }
                     OutlinedButton(onClick=onPick,enabled=!working){Text(if(hasNativeFile||csv.isNotBlank())"更换文件" else "选择文件")}
                 }
@@ -49,7 +49,7 @@ internal fun ImportPanel(csv:String,filename:String,preview:ImportPreview?,confi
             if(!native) OutlinedTextField(csv,onValueChange=onCSVChange,modifier=Modifier.fillMaxWidth().heightIn(min=150.dp,max=240.dp),enabled=!working,
                 label={Text("CSV 内容，可直接粘贴")},textStyle=LocalTextStyle.current.copy(fontSize=12.sp))
             TextButton(onClick={showFormat=!showFormat}){Text(if(showFormat)"收起格式说明"else"格式说明")}
-            if(showFormat&&native) Text((if(wechat)"支持单工作表的原始 XLSX，请勿改写订单号。"else"支持 UTF-8 和 GB18030。")+"退款、转账及不能确定的记录会保留为待核实，不计入收支；确认后仅保存通过校验的记录。",fontSize=12.sp,color=Muted)
+            if(showFormat&&native) Text((if(wechat)"CSV 需为 UTF-8 且包含微信账单表头；XLSX 仅支持单工作表。请勿改写订单号。"else"支持 UTF-8 和 GB18030。")+"退款、转账及不能确定的记录会保留为待核实，不计入收支；确认后仅保存通过校验的记录。",fontSize=12.sp,color=Muted)
             if(showFormat&&!native) Text("UTF-8 编码。必填：date 日期、type 收支、amount 金额（元）、currency 币种（CNY）、merchant 商户、source 来源。可选：category 分类、account 账户、external_id 流水号、note 备注。转账、退款和还款暂不支持。",fontSize=12.sp,color=Muted)
             Button(onClick=onPreview,enabled=(if(native)hasNativeFile&&sourceAccount.isNotBlank()else csv.isNotBlank())&&!working){Text("预览账单")}
             preview?.let { p ->

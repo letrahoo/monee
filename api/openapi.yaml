@@ -246,6 +246,54 @@ paths:
                           record: {$ref: '#/components/schemas/Transaction'}
         default:
           $ref: '#/components/responses/Error'
+  "/api/v1/imports/{id}/redaction-preview":
+    get:
+      operationId: getImportRedactionPreview
+      description: |
+        Read-only local projection of retained native Alipay/WeChat source evidence.
+        System admission and ledger membership are checked; viewers may read.
+        Makes no provider call, grants no cloud consent and does not change booked data.
+        Payload contains only allowlisted financial fields and ledger-scoped HMAC aliases;
+        filenames, precise times, private free text and original identifiers are omitted.
+        Excluded rows are reported with fixed local reasons. A valid batch with no eligible
+        rows returns 200 with an empty payload. Retained batch state does not change this
+        source snapshot projection. A batch from another ledger returns 404.
+      parameters:
+      - in: header
+        name: X-Monee-Ledger
+        schema: {type: string}
+        description: Explicit ledger selection; membership is verified on every request.
+      - in: path
+        name: id
+        required: true
+        schema: {type: string}
+      responses:
+        '200':
+          description: Local-only preview; Cache-Control is no-store. Only payload is a candidate future provider payload.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RedactionPreview'}
+        '422':
+          description: Unsupported source, missing native evidence or malformed/incomplete source structure; code invalid.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message]
+                properties:
+                  code: {type: string, const: invalid}
+                  message: {type: string}
+        '503':
+          description: Private redaction key unavailable; code redaction_unavailable. Ordinary ledger operations remain available.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message]
+                properties:
+                  code: {type: string, const: redaction_unavailable}
+                  message: {type: string}
+        default: {$ref: '#/components/responses/Error'}
   "/api/v1/imports/alipay/preview":
     post:
       operationId: previewAlipayImport
@@ -291,8 +339,13 @@ paths:
     post:
       operationId: previewWeChatImport
       description: |
-        Single-sheet original WeChat XLSX, 2 MiB compressed / 20 MiB expanded / 1000 records.
-        Exact XML decimal strings and typed source identifiers are retained. Formulas,
+        Known-header WeChat CSV (lossless UTF-8, optional BOM) or single-sheet XLSX.
+        Container detection uses content bytes, never the filename extension.
+        At most 2 MiB / 1000 records; XLSX also limits expanded content to 20 MiB.
+        CSV requires 交易时间,交易类型,交易对方,商品,收/支,金额(元),支付方式,当前状态,交易单号,商户单号.
+        CSV support is validated with synthetic fixtures, not an accepted original export sample.
+        CSV raw strings, physical row positions and textual leading-zero identifiers are retained.
+        Exact XML decimal strings and typed XLSX identifiers are retained. XLSX formulas,
         numeric order identifiers, malformed archives and multiple sheets are rejected.
         Only successful merchant consumption is bookable; refunds, transfers, income and
         uncertain records remain pending. Native failed previews are retained, never committed.
@@ -1584,7 +1637,7 @@ components:
       description: 400 malformed JSON; 401 absent/expired session or invalid native
         proof; 403 data access denied, admin role required, CSRF or origin rejected;
         404 unknown resource; 409 identity/version conflict; 415 non-JSON write; 422
-        validation; 429 too many login attempts; 503 provider unconfigured; 500 internal
+        validation; 429 too many login attempts; 503 provider unconfigured or redaction unavailable; 500 internal
         failure. Unknown routes may use plain-text 404/405.
       content:
         application/json:
@@ -1963,6 +2016,81 @@ components:
               skipped: {type: integer, minimum: 0}
               pending: {type: integer, minimum: 0, default: 0}
               month: {type: string}
+    RedactionAlias:
+      type: string
+      pattern: '^r1_[0-9a-f]{64}$'
+      description: Ledger-scoped HMAC alias; equality is evidence, not a deduplication verdict.
+    RedactionPreview:
+      type: object
+      additionalProperties: false
+      required: [importId, localOnly, includedCount, excluded, payload, treatments]
+      properties:
+        importId: {type: string}
+        localOnly: {type: boolean, const: true}
+        includedCount: {type: integer, minimum: 0, maximum: 1000}
+        excluded:
+          type: array
+          maxItems: 1000
+          items:
+            type: object
+            additionalProperties: false
+            required: [line, reason]
+            properties:
+              line: {type: integer, minimum: 1}
+              reason: {type: string, description: Fixed explanation with no original source values.}
+        payload:
+          type: object
+          additionalProperties: false
+          required: [version, records]
+          properties:
+            version: {type: string, const: monee-redaction-v1}
+            records:
+              type: array
+              maxItems: 1000
+              items: {$ref: '#/components/schemas/RedactedSourceRecord'}
+        treatments:
+          type: array
+          maxItems: 1000
+          description: Local inspection metadata; contains no original text and is excluded from payload.
+          items:
+            type: object
+            additionalProperties: false
+            required: [recordRef, merchant, note, account, identifierCount]
+            properties:
+              recordRef: {$ref: '#/components/schemas/RedactionAlias'}
+              merchant: {type: string, enum: [absent, pseudonymized]}
+              note: {type: string, enum: [absent, omitted_unstructured_text]}
+              account: {type: string, enum: [absent, pseudonymized]}
+              identifierCount: {type: integer, minimum: 0, maximum: 16}
+    RedactedSourceRecord:
+      type: object
+      additionalProperties: false
+      required: [ref, date, amountMinor, currency, direction, source, identifiers]
+      properties:
+        ref: {$ref: '#/components/schemas/RedactionAlias'}
+        date: {type: string, format: date, description: Source date; precise time omitted.}
+        amountMinor:
+          type: string
+          pattern: '^[1-9][0-9]{0,12}$'
+          description: Positive minor-unit magnitude, never rounded or represented as a JSON number.
+        currency: {type: string, const: CNY}
+        direction:
+          type: string
+          enum: [expense, income, unknown]
+          description: Validated source interpretation. Unknown does not authorize booking or imply income/expense.
+        source: {type: string, enum: [alipay, wechat]}
+        accountRef: {$ref: '#/components/schemas/RedactionAlias'}
+        merchantRef: {$ref: '#/components/schemas/RedactionAlias'}
+        identifiers:
+          type: array
+          maxItems: 16
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, ref]
+            properties:
+              kind: {type: string, enum: [alipay_payment_trace, wechat_payment_trace, merchant_order, source_transaction]}
+              ref: {$ref: '#/components/schemas/RedactionAlias'}
     ImportPreview:
       type: object
       required:

@@ -102,5 +102,20 @@ data class LoginProof(val verifier:String,val challenge:String)
 @Serializable data class ImportUndoRow(val transactionId:String,val date:String,val merchant:String,val type:String,val amountMinor:String,val action:String,val reason:String)
 @Serializable data class ImportUndoPreview(val importId:String,val ledgerVersion:Long,val state:String,val action:String,val changeCount:Int,val preservedCount:Int,val incomeMinor:String,val expenseMinor:String,val rows:List<ImportUndoRow>,val alreadyApplied:Boolean,val blockedCount:Int=0)
 
+@Serializable data class RedactionPreview(
+    val importId:String, val localOnly:Boolean, val includedCount:Int,
+    val excluded:List<RedactionExclusion>, val payload:RedactedPayload,
+    val treatments:List<RedactionTreatment>,
+)
+@Serializable data class RedactionExclusion(val line:Int,val reason:String)
+@Serializable data class RedactedPayload(val version:String,val records:List<RedactedRecord>)
+@Serializable data class RedactedRecord(
+    val ref:String,val date:String,val amountMinor:String,val currency:String,
+    val direction:String,val source:String,val accountRef:String="",val merchantRef:String="",
+    val identifiers:List<RedactedIdentifier>,
+)
+@Serializable data class RedactedIdentifier(val kind:String,val ref:String)
+@Serializable data class RedactionTreatment(val recordRef:String,val merchant:String,val note:String,val account:String,val identifierCount:Int)
+
 @Serializable data class ReviewQueueItem(val id:String,val importId:String,val filename:String,val line:Int,val format:String,val batchState:String,val sourceAccount:String="",val date:String,val merchant:String,val amount:String,val reason:String,val raw:Map<String,String> = emptyMap())
 @Serializable data class ReviewQueue(val items:List<ReviewQueueItem>,val page:Int,val pageSize:Int,val totalCount:Int,val format:String)
