@@ -7,6 +7,7 @@ import (
 )
 
 type ImportSummary struct {
+	Undone        bool          `json:"undone"`
 	Errors        int           `json:"errors"`
 	Pending       int           `json:"pending"`
 	ID            string        `json:"id"`
@@ -41,7 +42,7 @@ type ImportDetail struct {
 func scanImport(row interface{ Scan(...any) error }) (ImportSummary, error) {
 	var item ImportSummary
 	var committed, result sql.NullString
-	err := row.Scan(&item.ID, &item.Filename, &item.ParserVersion, &item.CreatedAt, &committed, &result, &item.Errors, &item.Pending)
+	err := row.Scan(&item.ID, &item.Filename, &item.ParserVersion, &item.CreatedAt, &committed, &result, &item.Errors, &item.Pending, &item.Undone)
 	if err != nil {
 		return item, err
 	}
@@ -55,7 +56,7 @@ func scanImport(row interface{ Scan(...any) error }) (ImportSummary, error) {
 	return item, err
 }
 
-const importSummaryColumns = "id,filename,parser_version,created_at,committed_at,result_json,COALESCE(json_array_length(preview_json,'$.errors'),0),COALESCE(json_array_length(preview_json,'$.pending'),0)"
+const importSummaryColumns = "id,filename,parser_version,created_at,committed_at,result_json,COALESCE(json_array_length(preview_json,'$.errors'),0),COALESCE(json_array_length(preview_json,'$.pending'),0),COALESCE((SELECT json_extract(payload_json,'$.state')='undone' FROM change_log WHERE ledger_id=imports.ledger_id AND entity_type='import' AND entity_id=imports.id AND operation IN ('import_undo','import_restore') ORDER BY sequence DESC LIMIT 1),0)"
 
 func (s *Store) ImportHistory(page int) (ImportHistory, error) {
 	s.mu.Lock()
@@ -124,6 +125,7 @@ func (s *Store) ImportDetail(id string) (ImportDetail, error) {
 		return out, err
 	}
 	out.Preview.AlreadyCommitted = out.CommittedAt != nil
+	out.Preview.Undone = out.Undone
 	rows, err := tx.Query(`SELECT sr.id,sr.line,sr.transaction_id,sr.disposition,sr.normalized_json
  FROM source_records sr JOIN imports i ON i.id=sr.import_id
  WHERE i.ledger_id=? AND i.id=? ORDER BY sr.line,sr.id`, s.ledgerID, id)

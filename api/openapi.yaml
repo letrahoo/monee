@@ -20,7 +20,10 @@ paths:
       security: []
       responses:
         '200':
-          description: Service is running.
+          description: |
+            Service is running. Desktop clients must match instanceId and serviceProtocol
+            against the private connection.json before reusing a local service. Identity
+            is fresh for each process and grants no access to ledger data.
           content:
             application/json:
               schema:
@@ -29,6 +32,8 @@ paths:
                 - status
                 - apiVersion
                 - schemaVersion
+                - instanceId
+                - serviceProtocol
                 properties:
                   status:
                     type: string
@@ -39,6 +44,13 @@ paths:
                   schemaVersion:
                     type: integer
                     const: 2
+                  instanceId:
+                    type: string
+                    pattern: '^[0-9a-f]{64}$'
+                    description: Random process identity; contains no credentials or data-directory path.
+                  serviceProtocol:
+                    type: integer
+                    const: 1
         default:
           "$ref": "#/components/responses/Error"
   "/api/v1/dashboard":
@@ -404,6 +416,130 @@ paths:
                     description: Latest business month in this batch.
         default:
           "$ref": "#/components/responses/Error"
+  "/api/v1/imports/{id}/undo-preview":
+    get:
+      operationId: previewUndoImport
+      description: |
+        Read-only impact preview for any ledger member, including viewers. Computes eligible and preserved transactions from the current ledger. No data is changed.
+        The batch must have been committed; an uncommitted batch returns 422.
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema: {type: string, format: uuid}
+      - in: header
+        name: X-Monee-Ledger
+        required: false
+        description: Explicit target ledger ID. Omission requires exactly one membership.
+        schema: {type: string}
+      responses:
+        '200':
+          description: Batch impact and current operation state.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ImportUndoPreview'}
+        default: {$ref: '#/components/responses/Error'}
+  "/api/v1/imports/{id}/undo":
+    post:
+      operationId: undoImport
+      description: |
+        Atomically soft-delete only transactions created by this batch that remain unmodified and are not associated with another committed batch. Preserve duplicates, edited transactions and shared transactions. Source evidence, postings and audit history are retained; soft-deleted transactions are excluded from current statistics. Owner/editor only.
+        The batch must have been committed; an uncommitted batch returns 422.
+        Supply ledgerVersion from the latest corresponding preview. Concurrent ledger
+        changes return 409 without applying the operation. If the batch already has
+        the requested state, return 200 with alreadyApplied=true without changing data,
+        even when the supplied version is stale. The response lists this operation's
+        affected rows and positive income/expense totals, with the resulting batch state
+        and ledger version; it is not a recalculated post-operation preview.
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema: {type: string, format: uuid}
+      - in: header
+        name: X-Monee-Ledger
+        required: false
+        description: Explicit target ledger ID. Omission requires exactly one membership.
+        schema: {type: string}
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required for browser-cookie writes; not required for native Bearer sessions.
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ImportUndoRequest'}
+      responses:
+        '200':
+          description: Batch impact and current operation state.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ImportUndoPreview'}
+        default: {$ref: '#/components/responses/Error'}
+  "/api/v1/imports/{id}/restore-preview":
+    get:
+      operationId: previewRestoreImport
+      description: |
+        Read-only impact preview for any ledger member, including viewers. Computes eligible and preserved transactions from the current ledger. No data is changed.
+        The batch must have been committed; an uncommitted batch returns 422.
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema: {type: string, format: uuid}
+      - in: header
+        name: X-Monee-Ledger
+        required: false
+        description: Explicit target ledger ID. Omission requires exactly one membership.
+        schema: {type: string}
+      responses:
+        '200':
+          description: Batch impact and current operation state.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ImportUndoPreview'}
+        default: {$ref: '#/components/responses/Error'}
+  "/api/v1/imports/{id}/restore":
+    post:
+      operationId: restoreImport
+      description: |
+        Atomically restore only transactions removed by this batch undo. Refuse with 409 if any of those records changed after undo. Owner/editor only; original source evidence and stable transaction IDs are retained.
+        The batch must have been committed; an uncommitted batch returns 422.
+        Supply ledgerVersion from the latest corresponding preview. Concurrent ledger
+        changes return 409 without applying the operation. If the batch already has
+        the requested state, return 200 with alreadyApplied=true without changing data,
+        even when the supplied version is stale. The response lists this operation's
+        affected rows and positive income/expense totals, with the resulting batch state
+        and ledger version; it is not a recalculated post-operation preview.
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema: {type: string, format: uuid}
+      - in: header
+        name: X-Monee-Ledger
+        required: false
+        description: Explicit target ledger ID. Omission requires exactly one membership.
+        schema: {type: string}
+      - in: header
+        name: X-Monee-CSRF
+        required: false
+        description: Required for browser-cookie writes; not required for native Bearer sessions.
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ImportUndoRequest'}
+      responses:
+        '200':
+          description: Batch impact and current operation state.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ImportUndoPreview'}
+        default: {$ref: '#/components/responses/Error'}
   "/api/v1/template":
     get:
       operationId: csvTemplate
@@ -1650,10 +1786,75 @@ components:
         filename: {type: string}
         line: {type: integer}
         disposition: {type: string, enum: [added, duplicate]}
+    ImportUndoRequest:
+      type: object
+      additionalProperties: false
+      required: [ledgerVersion]
+      properties:
+        ledgerVersion:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Exact ledger version returned by the latest undo/restore preview.
+    ImportUndoPreview:
+      type: object
+      required: [importId, ledgerVersion, state, action, changeCount, preservedCount, blockedCount, incomeMinor, expenseMinor, rows, alreadyApplied]
+      properties:
+        importId: {type: string, format: uuid}
+        ledgerVersion: {type: integer, format: int64, minimum: 0}
+        state:
+          type: string
+          enum: [committed, undone]
+          description: Current batch state; POST returns the resulting state.
+        action: {type: string, enum: [undo, restore]}
+        changeCount: {type: integer, minimum: 0}
+        preservedCount: {type: integer, minimum: 0}
+        blockedCount:
+          type: integer
+          minimum: 0
+          description: |
+            During restore, the number of transactions removed by this batch whose
+            current version or deletion marker no longer matches that undo. A value
+            greater than zero blocks the entire restore with 409; rows, changeCount
+            and amount totals are for inspection only and no partial restore occurs.
+            Zero for undo and already-applied operations.
+        incomeMinor:
+          type: string
+          pattern: '^[0-9]+$'
+          description: Positive sum of income affected by the action, in minor units. Undo removes this income; restore adds it back.
+        expenseMinor:
+          type: string
+          pattern: '^[0-9]+$'
+          description: Positive magnitude of expenses affected by the action, in minor units. Undo removes this expense; restore adds it back.
+        alreadyApplied:
+          type: boolean
+          description: The requested state already existed before this request; no change is needed.
+        rows:
+          type: array
+          items: {$ref: '#/components/schemas/ImportUndoRow'}
+    ImportUndoRow:
+      type: object
+      required: [transactionId, date, merchant, type, amountMinor, action, reason]
+      properties:
+        transactionId: {type: string, format: uuid}
+        date: {type: string, format: date}
+        merchant: {type: string}
+        type: {type: string, enum: [income, expense]}
+        amountMinor:
+          type: string
+          pattern: '^-?[0-9]+$'
+          description: Signed transaction amount in minor units; expenses are negative.
+        action: {type: string, enum: [undo, restore, preserve]}
+        reason:
+          type: string
+          description: User-facing explanation of eligibility or preservation.
     ImportSummary:
       type: object
-      required: [id, filename, parserVersion, createdAt, committedAt, result]
+      required: [id, filename, parserVersion, createdAt, committedAt, result, undone]
       properties:
+        undone:
+          type: boolean
+          description: Latest batch action is undo. Original commit counts and source evidence remain unchanged.
         id: {type: string}
         filename: {type: string}
         parserVersion: {type: integer}
@@ -1684,6 +1885,7 @@ components:
       - similarCount
       - errors
       - alreadyCommitted
+      - undone
       properties:
         format: {type: string, enum: [standard, alipay, wechat], default: standard}
         sourceAccount: {type: string}
@@ -1726,6 +1928,9 @@ components:
           type: array
           items:
             type: string
+        undone:
+          type: boolean
+          description: This previously committed batch was undone. Re-upload or commit does not restore it; use restore-preview and restore.
         alreadyCommitted:
           type: boolean
         rows:

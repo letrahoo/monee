@@ -21,13 +21,8 @@ internal fun desktopDataDirectory():Path = System.getenv("MONEE_DATA_DIR")?.let 
         else (System.getenv("XDG_CONFIG_HOME")?.let { Path.of(it) } ?: home.resolve(".config")).resolve("Monee")
     }
 
-internal actual suspend fun discoverConnection(client: HttpClient): Connection = withContext(Dispatchers.IO) {
-    val dataDir = desktopDataDirectory()
-    val connection = apiJson.decodeFromString<Connection>(Files.readString(dataDir.resolve("connection.json")))
-    val uri = java.net.URI(connection.baseUrl)
-    require(uri.scheme == "http" && uri.host == "127.0.0.1" && uri.port in 1..65535)
-    connection
-}
+internal actual suspend fun discoverConnection(client: HttpClient): Connection =
+    DesktopService.connection(desktopDataDirectory())
 
 actual suspend fun chooseCSV(): PickedCSV? {
     val selected = withContext(Dispatchers.Swing) {

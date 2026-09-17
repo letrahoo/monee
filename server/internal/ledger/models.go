@@ -98,6 +98,7 @@ type Preview struct {
 	SimilarCount     int                 `json:"similarCount"`
 	Errors           []string            `json:"errors"`
 	AlreadyCommitted bool                `json:"alreadyCommitted"`
+	Undone           bool                `json:"undone"`
 }
 type CommitResult struct {
 	Pending  int    `json:"pending"`

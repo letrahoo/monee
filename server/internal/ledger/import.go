@@ -90,7 +90,12 @@ func (s *Store) preview(filename, text string, native *ingestion.Document) (Prev
 	if err == nil && committed.Valid {
 		err = json.Unmarshal([]byte(previousJSON), &p)
 		p.AlreadyCommitted = true
-		return p, err
+		if err != nil {
+			return p, err
+		}
+		state, stateErr := s.importUndoState(s.db, p.ID)
+		p.Undone = state.State == "undone"
+		return p, stateErr
 	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return p, err

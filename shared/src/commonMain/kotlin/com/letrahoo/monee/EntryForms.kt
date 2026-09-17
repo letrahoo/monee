@@ -53,7 +53,7 @@ internal fun ImportPanel(csv:String,filename:String,preview:ImportPreview?,confi
             if(showFormat&&!native) Text("UTF-8 编码。必填：date 日期、type 收支、amount 金额（元）、currency 币种（CNY）、merchant 商户、source 来源。可选：category 分类、account 账户、external_id 流水号、note 备注。转账、退款和还款暂不支持。",fontSize=12.sp,color=Muted)
             Button(onClick=onPreview,enabled=(if(native)hasNativeFile&&sourceAccount.isNotBlank()else csv.isNotBlank())&&!working){Text("预览账单")}
             preview?.let { p ->
-                if(p.alreadyCommitted) Text("此文件已入账，重复导入不会新增账单。",color=Pine)
+                if(p.alreadyCommitted) Text(if(p.undone)"此批次已撤销，重复导入不会重新入账。可在导入记录中恢复。"else"此文件已入账，重复导入不会新增账单。",color=Pine)
                 else Text("将新增 ${p.newCount} 笔 · 跳过 ${p.duplicateCount} 笔重复流水 · ${p.similarCount} 笔疑似重复",fontWeight=FontWeight.Bold)
                 if(p.pending.isNotEmpty()) {
                     if(p.id.isNotEmpty()&&p.errors.isEmpty()) Text("待核实记录已保留，可从导入记录重新查看。",fontSize=12.sp,color=Muted)
@@ -136,7 +136,7 @@ internal fun ManualPanel(input:TransactionInput,working:Boolean,onChange:(Transa
 }
 
 @Composable
-internal fun ImportHistoryPanel(history:ImportHistory,working:Boolean,onPage:(Int)->Unit,onOpen:(String)->Unit) {
+internal fun ImportHistoryPanel(history:ImportHistory,working:Boolean,onPage:(Int)->Unit,onOpen:(String)->Unit,canManage:Boolean,onManage:(ImportSummary)->Unit) {
     Surface(color=Color.White,shape=RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(22.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             Text("导入记录",fontSize=21.sp,fontWeight=FontWeight.Bold,color=Pine)
@@ -146,9 +146,10 @@ internal fun ImportHistoryPanel(history:ImportHistory,working:Boolean,onPage:(In
                     Column(Modifier.fillMaxWidth()) {
                         Text(item.filename)
                         val result=item.result
-                        Text(if(item.errors>0)"解析失败 · ${item.errors} 项错误"else if(result==null)"未入账 · 待核实 ${item.pending} 笔 · ${item.createdAt.take(10)}"else"已入账 ${result.added} 笔 · 重复 ${result.skipped} 笔 · 待核实 ${result.pending} 笔",fontSize=12.sp,color=Muted)
+                        Text(if(item.undone)"已撤销 · 可恢复 · 原批次新增 ${result?.added ?: 0} 笔"else if(item.errors>0)"解析失败 · ${item.errors} 项错误"else if(result==null)"未入账 · 待核实 ${item.pending} 笔 · ${item.createdAt.take(10)}"else"已入账 ${result.added} 笔 · 重复 ${result.skipped} 笔 · 待核实 ${result.pending} 笔",fontSize=12.sp,color=Muted)
                     }
                 }
+                if(canManage&&item.committedAt!=null) TextButton(onClick={onManage(item)},enabled=!working){Text(if(item.undone)"恢复此批次"else"撤销此批次")}
             }
             Row(verticalAlignment=Alignment.CenterVertically) {
                 TextButton(onClick={onPage(history.page-1)},enabled=!working&&history.page>1){Text("上一页")}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -73,19 +72,16 @@ func run() error {
 	defer store.Close()
 	baseURL := "http://" + listener.Addr().String()
 	access := auth.NewService(accessStore, auth.NewProviders(config, baseURL), baseURL)
-	connection, _ := json.Marshal(map[string]string{"baseUrl": baseURL})
+	connection, err := newServiceConnection(baseURL)
+	if err != nil {
+		return err
+	}
 	// Discovery contains no account credentials. Both clients must complete OAuth.
-	path := filepath.Join(*dataDir, "connection.json")
-	if err = os.WriteFile(path+".tmp", connection, 0600); err != nil {
+	if err = publishConnection(*dataDir, connection); err != nil {
 		return err
 	}
-	if err = os.Chmod(path+".tmp", 0600); err != nil {
-		return err
-	}
-	if err = os.Rename(path+".tmp", path); err != nil {
-		return err
-	}
-	api := httpapi.API{Store: store, Auth: access, Host: listener.Addr().String(), WebDir: *webDir}
+	api := httpapi.API{Store: store, Auth: access, Host: listener.Addr().String(), WebDir: *webDir,
+		InstanceID: connection.InstanceID, ServiceProtocol: connection.ServiceProtocol}
 	server := &http.Server{Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

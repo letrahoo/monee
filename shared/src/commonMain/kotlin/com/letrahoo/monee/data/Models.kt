@@ -34,7 +34,7 @@ data class Dashboard(
 data class ImportPreview(
     val id: String, val filename: String, val ledgerVersion: Long, val rows: List<ImportRow>,
     val newCount: Int, val duplicateCount: Int, val similarCount: Int,
-    val errors: List<String>, val alreadyCommitted: Boolean,
+    val errors: List<String>, val alreadyCommitted: Boolean, val undone:Boolean=false,
     val pending: List<PendingImportRow> = emptyList(),
     val sourceAccount:String="",
     val format:String="standard",
@@ -85,7 +85,7 @@ data class LoginProof(val verifier:String,val challenge:String)
 @Serializable data class RegisteredUser(val id:String,val name:String,val enabled:Boolean,val role:String,val version:Long)
 @Serializable data class RegisteredUsers(val users:List<RegisteredUser>)
 
-@Serializable data class ImportSummary(val id:String,val filename:String,val createdAt:String,val committedAt:String?=null,val result:CommitResult?=null,val errors:Int=0,val pending:Int=0)
+@Serializable data class ImportSummary(val id:String,val filename:String,val createdAt:String,val committedAt:String?=null,val result:CommitResult?=null,val errors:Int=0,val pending:Int=0,val undone:Boolean=false)
 @Serializable data class ImportHistory(val imports:List<ImportSummary>,val page:Int,val pageSize:Int,val totalCount:Int)
 @Serializable data class ImportDetail(val parserVersion:Int,val preview:ImportPreview)
 
@@ -97,3 +97,7 @@ data class LoginProof(val verifier:String,val challenge:String)
 @Serializable data class CorrectionInput(val version:Long,val type:String,val amountMinor:String,val reason:String)
 @Serializable data class CorrectionPreview(val before:LedgerTransaction,val after:LedgerTransaction,val incomeDeltaMinor:String,val expenseDeltaMinor:String,val netDeltaMinor:String)
 @Serializable data class CorrectionRevision(val before:LedgerTransaction,val after:LedgerTransaction,val reason:String,val createdAt:String)
+
+@Serializable data class ImportUndoRequest(val ledgerVersion:Long)
+@Serializable data class ImportUndoRow(val transactionId:String,val date:String,val merchant:String,val type:String,val amountMinor:String,val action:String,val reason:String)
+@Serializable data class ImportUndoPreview(val importId:String,val ledgerVersion:Long,val state:String,val action:String,val changeCount:Int,val preservedCount:Int,val incomeMinor:String,val expenseMinor:String,val rows:List<ImportUndoRow>,val alreadyApplied:Boolean,val blockedCount:Int=0)
