@@ -53,10 +53,13 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
     var sourceLinks by remember { mutableStateOf<List<TransactionSource>>(emptyList()) }
     var sourceID by remember { mutableStateOf("") }
     var revisions by remember { mutableStateOf<List<AnnotationRevision>>(emptyList()) }
+    var corrections by remember { mutableStateOf<List<CorrectionRevision>>(emptyList()) }
     var revisionID by remember { mutableStateOf("") }
     var selectedID by remember { mutableStateOf<String?>(null) }
     var csv by remember { mutableStateOf("") }
     var filename by remember { mutableStateOf("import.csv") }
+    var undoPreview by remember { mutableStateOf<ImportUndoPreview?>(null) }
+    var undoFilename by remember { mutableStateOf("") }
     var importHistory by remember { mutableStateOf<ImportHistory?>(null) }
     var importFormat by remember { mutableStateOf("alipay") }
     val nativeImport = importFormat != "standard"
@@ -149,12 +152,30 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                     )
                 }
                 if(panel=="history") importHistory?.let { history ->
-                    ImportHistoryPanel(history,working,
+                    ImportHistoryPanel(history,working,canManage=ledger.role!="viewer",
+                        onManage={item->runAction {
+                            val first=api.importUndoPreview(ledger.id,item.id)
+                            undoPreview=if(first.state=="undone")api.importUndoPreview(ledger.id,item.id,true) else first
+                            undoFilename=item.filename;panel="undo"
+                        }},
                         onPage={next->runAction {importHistory=api.importHistory(ledger.id,next)}},
                         onOpen={id->runAction {
                             val detail=api.importDetail(ledger.id,id)
                             preview=detail.preview;filename=detail.preview.filename;importFormat=detail.preview.format
                             nativeContent="";csv="";sourceAccount=detail.preview.sourceAccount.ifBlank { "我的支付宝" };confirmedSimilar=false;panel="import"
+                        }})
+                }
+                if(panel=="undo") undoPreview?.let { candidate ->
+                    ImportUndoPanel(undoFilename,candidate,working,
+                        onRefresh={runAction {
+                            val latest=api.importUndoPreview(ledger.id,candidate.importId)
+                            undoPreview=if(latest.state=="undone")api.importUndoPreview(ledger.id,candidate.importId,true)else latest
+                        }},
+                        onCancel={panel="history";undoPreview=null;actionError=null},
+                        onConfirm={runAction {
+                            val result=api.changeImportState(ledger.id,candidate)
+                            notice=if(result.alreadyApplied)"该操作已处理，账单未重复变更"else"已${if(candidate.action=="restore")"恢复"else"撤销"} ${result.changeCount} 笔，保留 ${result.preservedCount} 笔"
+                            importHistory=api.importHistory(ledger.id,1);undoPreview=null;preview=null;panel="history";selectedID=null;refresh++
                         }})
                 }
                 if(panel=="manual") {
@@ -236,9 +257,13 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                                         if(ledger.role!="viewer") AnnotationEditor(item,working,onSave={category,note->runAction {
                                             api.annotate(ledger.id,item.id,AnnotationInput(item.version,category,note));notice="分类与备注已保存";refresh++;revisionID=""
                                         }})
-                                        TextButton(onClick={runAction { revisions=api.annotationHistory(ledger.id,item.id);revisionID=item.id }},enabled=!working){Text("修改记录")}
+                                        if(ledger.role!="viewer") CorrectionEditor(item,working,
+                                            onPreview={change,accept->runAction { accept(api.previewCorrection(ledger.id,item.id,change)) }},
+                                            onConfirm={change->runAction { api.correct(ledger.id,item.id,change);notice="金额与收支性质已更正";refresh++;revisionID="" }})
+                                        TextButton(onClick={runAction { revisions=api.annotationHistory(ledger.id,item.id);corrections=api.correctionHistory(ledger.id,item.id);revisionID=item.id }},enabled=!working){Text("修改记录")}
                                         if(revisionID==item.id) {
-                                            if(revisions.isEmpty())Text("暂无修改记录",fontSize=12.sp,color=Muted)
+                                            if(revisions.isEmpty()&&corrections.isEmpty())Text("暂无修改记录",fontSize=12.sp,color=Muted)
+                                            corrections.forEach { revision -> Text("${revision.createdAt.take(19)} · ${if(revision.before.type=="income")"收入"else"支出"} ${formatMoney(revision.before.amountMinor.toLong())} → ${if(revision.after.type=="income")"收入"else"支出"} ${formatMoney(revision.after.amountMinor.toLong())}\n原因：${revision.reason}",fontSize=12.sp,color=Muted) }
                                             revisions.forEach { revision -> Text("${revision.createdAt.take(19)} · 分类：${revision.before.category} → ${revision.after.category}\n备注：${revision.before.note.ifBlank { "无" }} → ${revision.after.note.ifBlank { "无" }}",fontSize=12.sp,color=Muted) }
                                         }
                                         TextButton(onClick={selectedID=null}){Text("收起详情")}

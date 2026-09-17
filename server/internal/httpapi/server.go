@@ -18,9 +18,11 @@ import (
 )
 
 type API struct {
-	Store        *ledger.Store
-	Host, WebDir string
-	Auth         *auth.Service
+	Store           *ledger.Store
+	Host, WebDir    string
+	Auth            *auth.Service
+	InstanceID      string
+	ServiceProtocol int
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -74,8 +76,10 @@ func (a API) Handler() http.Handler {
 	a.registerLedgers(mux)
 	a.registerImports(mux)
 	a.registerAnnotations(mux)
+	a.registerCorrections(mux)
+	a.registerImportUndo(mux)
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"status": "ok", "apiVersion": 1, "schemaVersion": 2})
+		writeJSON(w, 200, map[string]any{"status": "ok", "apiVersion": 1, "schemaVersion": 2, "instanceId": a.InstanceID, "serviceProtocol": a.ServiceProtocol})
 	})
 	if a.Auth != nil {
 		a.Auth.Register(mux)
