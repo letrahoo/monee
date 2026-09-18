@@ -15,7 +15,7 @@ Monee 的生产部署使用两个运行容器，但保持一个浏览器同源�
 - `ghcr.io/letrahoo/monee-api:sha-<完整提交>`
 - `ghcr.io/letrahoo/monee-web:sha-<完整提交>`
 
-生产部署必须使用同一个不可变 `sha-...` 标签，不使用 `latest`。原有 `build.yml` 继续负责 Go 测试、KMP 测试、Web 构建和桌面发行资源；容器工作流只增加可部署镜像，不替代客户端 CI。
+`sha-...` 是方便追溯提交的标签，并非不可变内容：同一提交重新构建时，基础镜像或构建环境变化仍可覆盖标签。生产部署必须分别固定 API、Web 的 `image@sha256:<64位内容摘要>`，两者取自同一次成功发布运行。工作流在各镜像 job 摘要输出完整引用，并上传 `deployment-reference-api-<运行次数>` / `deployment-reference-web-<运行次数>` 制品，记录 digest、提交、运行 ID 和重试次数；部署前核对两份记录属于同一成功运行及同一提交。不要在部署时重新解析可变标签替代已记录的 digest。原有 `build.yml` 继续负责 Go 测试、KMP 测试、Web 构建和桌面发行资源；容器工作流只增加可部署镜像，不替代客户端 CI。
 
 首次发布后应将两个 GHCR package 设为 public；若保持 private，服务器使用只有 `read:packages` 的令牌登录 GHCR，不使用个人全权限令牌，也不把令牌写入 `.env`。
 
@@ -46,7 +46,8 @@ docker network connect monee-edge nginx-app
 
 ```dotenv
 MONEE_PUBLIC_URL=https://finance.letra.xin
-MONEE_IMAGE_TAG=sha-<main 上已通过 CI 的完整提交>
+MONEE_API_IMAGE=ghcr.io/letrahoo/monee-api@sha256:<该次发布的API摘要>
+MONEE_WEB_IMAGE=ghcr.io/letrahoo/monee-web@sha256:<该次发布的Web摘要>
 MONEE_EDGE_NETWORK=monee-edge
 MONEE_DATA_VOLUME=monee-data
 ```
@@ -70,7 +71,7 @@ docker compose --env-file .env config
 docker compose --env-file .env pull
 ```
 
-对现有 `monee-data` 做一致性备份并记录当前镜像标签后，再启动候选版本。API 镜像内置只读打开 SQLite、包含 WAL 已提交内容并校验完整性的备份工具；备份输出目录必须事先不存在：
+对现有 `monee-data` 做一致性备份并记录当前 API/Web 完整 digest 引用后，再启动候选版本。API 镜像内置只读打开 SQLite、包含 WAL 已提交内容并校验完整性的备份工具；备份输出目录必须事先不存在：
 
 ```sh
 mkdir -p backups
@@ -92,7 +93,9 @@ docker compose --env-file .env ps
 
 Nginx Proxy Manager 的上游使用共享网络内的 `monee-web:8080`，公网只开放正式域名的 80/443。不要发布 `api:4173` 或 `web:8080` 到主机公网端口。
 
-应用 Web 代理的访问日志只保留请求路径和状态，不记录查询参数或 Referer；`/auth/` 的错误日志停用，避免 Nginx 在上游故障时写出 OAuth ticket、code 和 state。外层 Nginx Proxy Manager 或其他 TLS 代理也必须使用不含查询参数/Referer 的访问日志，并对 `/auth/` 禁用未脱敏错误日志，否则凭据仍可能进入外层日志。登录排障使用路径、状态码和 Go 服务的无凭据错误结果。
+应用 Web 代理的访问日志只保留请求路径和状态，不记录查询参数或 Referer；`/auth/` 和 `/api/` 的错误日志停用，避免 Nginx 在上游故障时写出 OAuth ticket、code、state 或财务搜索条件。外层 Nginx Proxy Manager 或其他 TLS 代理也必须使用不含查询参数/Referer 的访问日志，并对这两类路径禁用未脱敏错误日志，否则敏感信息仍可能进入外层日志。排障使用路径、状态码和 Go 服务的无凭据错误结果。
+
+Compose 对 API/Web 的容器日志均设置 `json-file` 轮转：每份最多 10 MB，保留 3 份，避免访问日志持续占满承载 SQLite 的磁盘。外层代理也须单独设置日志轮转；保留份数到限后旧日志会被轮换删除，需要长期审计时应提前送到独立存储。
 
 切换后至少验证：
 
@@ -105,9 +108,53 @@ Nginx Proxy Manager 的上游使用共享网络内的 `monee-web:8080`，公网�
 
 ## 回滚
 
-回滚只修改 `.env` 中的 `MONEE_IMAGE_TAG` 为上一个已验证的完整提交，再执行 `docker compose --env-file .env up -d`。如果新版本包含数据库迁移，先停止服务并按对应版本的备份/恢复说明回滚数据；不要直接覆盖运行中的 SQLite 文件。
+没有数据库迁移时，把 `.env` 的 `MONEE_API_IMAGE`、`MONEE_WEB_IMAGE` 一起恢复为上一份已验证发布记录中的 digest 引用，再执行 `docker compose --env-file .env pull` 和 `docker compose --env-file .env up -d`。不要用可能已被重建覆盖的 `sha-...` 标签代替历史 digest。
 
-数据库恢复必须在 API 停止后进行，并先用 `/monee-backup -restore BACKUP_DIR -out NEW_DB` 恢复到一个不存在的新文件；核对校验结果后保留当前数据库，再原子切换新文件。不要把恢复目标直接指向运行中的 `/data/application.db`。
+需要恢复数据库时，先明确恢复将放弃备份时间之后的账本修改，并保留当前数据用于人工核对。SQLite 的 `application.db`、`application.db-wal` 和 `application.db-shm` 属于同一组运行状态；绝不能只覆盖主文件后留下旧 WAL/SHM，否则旧页可能再次作用到恢复后的数据库。
+
+1. 暂停会自动重启或部署该实例的任务，停止 Web 和 API，并确认没有其他容器/主机进程打开此数据卷。整个恢复过程保持停止，失败后也不要自动重启。
+2. 选择已经校验的备份目录；用备份工具恢复到数据卷中一个不存在的新文件。工具会检查快照摘要和 SQLite 完整性，失败即停止。
+3. 在同一个卷内创建新的保留目录，将当前主文件及存在的 WAL/SHM **全部移入该目录**。不要单独丢弃 WAL，它可能含有尚未 checkpoint 的已提交数据。
+4. 确认原路径上已经没有主文件及 WAL/SHM 后，将恢复的新文件原子重命名为 `application.db`；保留目录直到恢复验收和差异核对完成。如果这一步中断，保持停机，检查保留目录与原目录，先整理完整文件组后再继续，禁止混合两组文件启动。
+5. 固定与该备份模式兼容的 API/Web digest，启动并验证健康、真实登录和账本内容。恢复失败需回到原数据时，同样先停止所有读写者，把当前三文件作为另一整组保留，再完整移回最初保留的三文件。
+
+以下示例在发布目录执行。`backup_name` 必须替换为已有且已确认的备份目录名；不会覆盖已有备份或恢复文件：
+
+```sh
+set -euo pipefail
+docker compose --env-file .env stop web api
+running_api="$(docker compose --env-file .env ps --quiet --status running api)"
+test -z "$running_api"
+backup_name=application-YYYYMMDDTHHMMSSZ
+restore_id="$(date -u +%Y%m%dT%H%M%SZ)"
+data_volume="$(docker compose --env-file .env config --format json | jq -er '.volumes["monee-data"].name')"
+docker compose --env-file .env run --rm --no-deps \
+  -v "$PWD/backups:/backup:ro" --entrypoint /monee-backup api \
+  -restore "/backup/$backup_name" -out "/data/application.restore-$restore_id.db"
+
+# Only run after the preceding restore completed successfully, with no writers.
+docker run --rm --network none --read-only --user 65532:65532 \
+  --cap-drop ALL --security-opt no-new-privileges \
+  --mount "type=volume,src=$data_volume,dst=/data" \
+  --env RESTORE_ID="$restore_id" alpine:3.22 sh -ec '
+    restored="/data/application.restore-$RESTORE_ID.db"
+    retained="/data/pre-restore-$RESTORE_ID"
+    test -s "$restored"
+    test ! -e "$retained"
+    mkdir -m 700 "$retained"
+    for suffix in "" -wal -shm; do
+      file="/data/application.db$suffix"
+      if test -e "$file"; then mv "$file" "$retained/"; fi
+    done
+    test ! -e /data/application.db
+    test ! -e /data/application.db-wal
+    test ! -e /data/application.db-shm
+    chmod 600 "$restored"
+    mv "$restored" /data/application.db
+  '
+```
+
+以上两步之间或搬移过程中失败时，保留所有现存文件并人工检查，不执行启动命令；不能通过重试覆盖保留目录来“清理”失败现场。`auth.json`、`redaction.key` 和数据目录锁文件不参与上述数据库替换。数据库恢复完成后再按上一段固定镜像、启动和验收。
 
 ## 后续移动端扩展
 

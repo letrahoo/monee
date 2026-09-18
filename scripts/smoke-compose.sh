@@ -10,8 +10,9 @@ else
 fi
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/monee-compose.XXXXXXXX")
 run_id="monee-smoke-$(date +%s)-$$"
-export MONEE_API_IMAGE=monee-api MONEE_WEB_IMAGE=monee-web MONEE_IMAGE_TAG=smoke
-export MONEE_PUBLIC_URL=https://monee.test
+export MONEE_API_IMAGE=monee-api:smoke MONEE_WEB_IMAGE=monee-web:smoke
+# Browsers normalize this spelling before sending Host/Origin.
+export MONEE_PUBLIC_URL=HTTPS://MONEE.TEST:443
 export MONEE_AUTH_DIR="$scratch/auth"
 export MONEE_EDGE_NETWORK="$run_id-edge" MONEE_DATA_VOLUME="$run_id-data"
 compose+=(--project-name "$run_id" --file compose.yaml)
@@ -53,6 +54,9 @@ docker network create --internal --subnet "$MONEE_SMOKE_SUBNET" \
 "${compose[@]}" up --detach --wait --wait-timeout 120
 api_id=$("${compose[@]}" ps --quiet api)
 web_id=$("${compose[@]}" ps --quiet web)
+for service_id in "$api_id" "$web_id"; do
+  docker inspect "$service_id" | jq -e '.[0].HostConfig.LogConfig | .Type == "json-file" and .Config["max-size"] == "10m" and .Config["max-file"] == "3"' >/dev/null
+done
 # The deployment must not expose either application container on host ports.
 test -z "$(docker port "$api_id")"
 test -z "$(docker port "$web_id")"
@@ -110,6 +114,7 @@ private_network="${run_id}_private"
 old_api_ip=$(docker inspect "$api_id" | jq -er --arg network "$private_network" '.[0].NetworkSettings.Networks[$network].IPAddress')
 "${compose[@]}" rm --stop --force api
 request --output /dev/null "https://monee.test/auth/begin?ticket=$log_marker"
+request --output /dev/null "https://monee.test/api/v1/dashboard?q=$log_marker"
 docker run --detach --name "$run_id-ip-holder" --network "$private_network" \
   --ip "$old_api_ip" --read-only --cap-drop ALL --security-opt no-new-privileges \
   alpine:3.22 sleep 300 >/dev/null
@@ -129,8 +134,9 @@ request --fail --dump-header - --output /dev/null "$replacement_auth_url" > "$sc
 grep -qi '^location: https://github.com/login/oauth/authorize?' "$scratch/recreated-headers"
 docker logs "$web_id" > "$scratch/web.log" 2>&1
 docker logs "$run_id-tls" > "$scratch/tls.log" 2>&1
-if grep -Eq 'ticket=|state=|code=' "$scratch/web.log" "$scratch/tls.log"; then
-  echo 'OAuth query parameters appeared in proxy logs' >&2
+if grep -Eq 'ticket=|state=|code=|q=' "$scratch/web.log" "$scratch/tls.log" || \
+   grep -Fq "$log_marker" "$scratch/web.log" "$scratch/tls.log"; then
+  echo 'Sensitive query parameters appeared in proxy logs' >&2
   exit 1
 fi
 echo 'Compose TLS, proxy, authorization boundary, OAuth redirect, egress, volume, restart and API replacement checks passed.'

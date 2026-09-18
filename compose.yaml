@@ -34,8 +34,13 @@ services:
       - FOWNER
 
   api:
-    image: ${MONEE_API_IMAGE:-ghcr.io/letrahoo/monee-api}:${MONEE_IMAGE_TAG:?set MONEE_IMAGE_TAG to an immutable sha tag}
+    image: ${MONEE_API_IMAGE:?set the complete API image reference; use image@sha256:digest in production}
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       data-init:
         condition: service_completed_successfully
@@ -63,8 +68,13 @@ services:
       start_period: 10s
 
   web:
-    image: ${MONEE_WEB_IMAGE:-ghcr.io/letrahoo/monee-web}:${MONEE_IMAGE_TAG:?set MONEE_IMAGE_TAG to an immutable sha tag}
+    image: ${MONEE_WEB_IMAGE:?set the complete Web image reference; use image@sha256:digest in production}
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       api:
         condition: service_healthy

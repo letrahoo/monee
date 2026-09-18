@@ -12,6 +12,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 	_ "time/tzdata"
@@ -120,11 +122,35 @@ func deploymentURLs(listenHost, listenPort, configured string) (string, string, 
 		configured = "http://" + net.JoinHostPort(listenHost, listenPort)
 	}
 	u, err := url.Parse(configured)
-	if err != nil || !u.IsAbs() || u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+	if err != nil || !u.IsAbs() || u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
 		return "", "", errors.New("public-url must be an absolute origin without credentials, path, query, or fragment")
 	}
+	u.Scheme = strings.ToLower(u.Scheme)
 	if u.Scheme != "https" && !(u.Scheme == "http" && u.Hostname() == "127.0.0.1") {
 		return "", "", errors.New("public-url must use HTTPS except for 127.0.0.1")
+	}
+	// Browsers serialize origins with lowercase hosts and no default port.
+	// Use the same spelling for request validation, OAuth and health checks.
+	hostname := strings.ToLower(u.Hostname())
+	if hostname == "" {
+		return "", "", errors.New("public-url must have a hostname")
+	}
+	port := u.Port()
+	if port != "" {
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 {
+			return "", "", errors.New("public-url has an invalid port")
+		}
+		port = strconv.Itoa(number)
+	}
+	if (u.Scheme == "https" && port == "443") || (u.Scheme == "http" && port == "80") {
+		port = ""
+	}
+	u.Host = hostname
+	if port != "" {
+		u.Host = net.JoinHostPort(hostname, port)
+	} else if strings.Contains(hostname, ":") {
+		u.Host = "[" + hostname + "]"
 	}
 	u.Path = ""
 	return u.String(), u.Host, nil
@@ -143,15 +169,15 @@ func main() {
 
 func checkHealth() error {
 	publicURL := os.Getenv("MONEE_PUBLIC_URL")
-	u, err := url.Parse(publicURL)
-	if err != nil || u.Host == "" {
+	_, requestHost, err := deploymentURLs("0.0.0.0", "4173", publicURL)
+	if err != nil {
 		return errors.New("MONEE_PUBLIC_URL is required for the container healthcheck")
 	}
 	req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:4173/api/v1/health", nil)
 	if err != nil {
 		return err
 	}
-	req.Host = u.Host
+	req.Host = requestHost
 	client := http.Client{Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("unexpected redirect") }}
 	resp, err := client.Do(req)
 	if err != nil {

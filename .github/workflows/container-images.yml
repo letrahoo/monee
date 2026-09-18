@@ -18,6 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      - name: Verify deployment image reference configuration
+        run: bash scripts/check-deployment-config.sh
       - name: Build API for integration
         uses: docker/build-push-action@v6
         with:
@@ -70,6 +72,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=tag
       - name: Build and optionally publish
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -83,6 +86,30 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
           provenance: ${{ github.event_name != 'pull_request' && 'mode=max' || 'false' }}
           sbom: ${{ github.event_name != 'pull_request' }}
+      - name: Record published content digest
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE_REPOSITORY: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_KIND: ${{ matrix.name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          image_ref="${IMAGE_REPOSITORY,,}@$IMAGE_DIGEST"
+          jq -n --arg image "$image_ref" --arg digest "$IMAGE_DIGEST" \
+            --arg commit "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" \
+            --arg attempt "$GITHUB_RUN_ATTEMPT" \
+            '{image: $image, digest: $digest, commit: $commit, runId: $run, runAttempt: $attempt}' \
+            > "deployment-reference-$IMAGE_KIND.json"
+          printf 'MONEE_%s_IMAGE=%s\n' "${IMAGE_KIND^^}" "$image_ref" >> "$GITHUB_STEP_SUMMARY"
+      - name: Save deployment reference
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-reference-${{ matrix.name }}-${{ github.run_attempt }}
+          path: deployment-reference-${{ matrix.name }}.json
+          if-no-files-found: error
       - name: Smoke-test image
         if: github.event_name == 'pull_request'
         env:
