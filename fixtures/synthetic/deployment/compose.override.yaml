@@ -1,0 +1,7 @@
+networks:
+  private:
+    ipam:
+      config:
+        # Assigned by Docker from an unused pool before this isolated test.
+        # Explicit IPAM permits reserving the old API address during replacement.
+        - subnet: ${MONEE_SMOKE_SUBNET:?set by scripts/smoke-compose.sh}

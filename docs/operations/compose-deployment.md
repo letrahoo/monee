@@ -92,6 +92,8 @@ docker compose --env-file .env ps
 
 Nginx Proxy Manager 的上游使用共享网络内的 `monee-web:8080`，公网只开放正式域名的 80/443。不要发布 `api:4173` 或 `web:8080` 到主机公网端口。
 
+应用 Web 代理的访问日志只保留请求路径和状态，不记录查询参数或 Referer；`/auth/` 的错误日志停用，避免 Nginx 在上游故障时写出 OAuth ticket、code 和 state。外层 Nginx Proxy Manager 或其他 TLS 代理也必须使用不含查询参数/Referer 的访问日志，并对 `/auth/` 禁用未脱敏错误日志，否则凭据仍可能进入外层日志。登录排障使用路径、状态码和 Go 服务的无凭据错误结果。
+
 切换后至少验证：
 
 1. `api`、`web` 健康，`data-init` 成功退出。
