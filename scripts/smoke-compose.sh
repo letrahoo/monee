@@ -21,7 +21,7 @@ cleanup() {
     "${compose[@]}" ps --all || true
     "${compose[@]}" logs --no-color --tail 80 || true
   fi
-  docker rm --force "$run_id-tls" >/dev/null 2>&1 || true
+  docker rm --force "$run_id-tls" "$run_id-ip-holder" >/dev/null 2>&1 || true
   "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
   docker network rm "$MONEE_EDGE_NETWORK" >/dev/null 2>&1 || true
   # mktemp-generated directory contains only this test's certificates/config.
@@ -89,4 +89,26 @@ docker run --rm --network none --mount "type=volume,src=$MONEE_DATA_VOLUME,dst=/
 "${compose[@]}" up --detach --wait --wait-timeout 120
 request --fail https://monee.test/api/v1/health >/dev/null
 test "$(request --output /dev/null --write-out '%{http_code}' https://monee.test/api/v1/dashboard)" = 401
-echo 'Compose TLS, proxy, authorization boundary, OAuth redirect, egress, volume and restart checks passed.'
+# A restart retains the IP, unlike replacement during recovery or deployment.
+# Reserve the former private IP so this regression cannot pass by IP reuse.
+private_network="${run_id}_private"
+old_api_ip=$(docker inspect "$api_id" | jq -er --arg network "$private_network" '.[0].NetworkSettings.Networks[$network].IPAddress')
+"${compose[@]}" rm --stop --force api
+docker run --detach --name "$run_id-ip-holder" --network "$private_network" \
+  --ip "$old_api_ip" --read-only --cap-drop ALL --security-opt no-new-privileges \
+  alpine:3.22 sleep 300 >/dev/null
+"${compose[@]}" up --detach --no-deps --force-recreate --wait --wait-timeout 120 api
+replacement_api_id=$("${compose[@]}" ps --quiet api)
+new_api_ip=$(docker inspect "$replacement_api_id" | jq -er --arg network "$private_network" '.[0].NetworkSettings.Networks[$network].IPAddress')
+test "$old_api_ip" != "$new_api_ip"
+test "$web_id" = "$("${compose[@]}" ps --quiet web)"
+request --retry 12 --retry-all-errors --retry-delay 1 --fail \
+  https://monee.test/api/v1/health >/dev/null
+test "$(request --output /dev/null --write-out '%{http_code}' https://monee.test/api/v1/dashboard)" = 401
+request --fail -H 'Origin: https://monee.test' -H 'Content-Type: application/json' \
+  --data '{"provider":"github","client":"web"}' \
+  https://monee.test/api/v1/auth/start > "$scratch/recreated-start.json"
+replacement_auth_url=$(jq -er '.url | select(startswith("https://monee.test/auth/begin?ticket="))' "$scratch/recreated-start.json")
+request --fail --dump-header - --output /dev/null "$replacement_auth_url" > "$scratch/recreated-headers"
+grep -qi '^location: https://github.com/login/oauth/authorize?' "$scratch/recreated-headers"
+echo 'Compose TLS, proxy, authorization boundary, OAuth redirect, egress, volume, restart and API replacement checks passed.'

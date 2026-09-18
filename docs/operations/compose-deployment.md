@@ -19,7 +19,9 @@ Monee 的生产部署使用两个运行容器，但保持一个浏览器同源�
 
 首次发布后应将两个 GHCR package 设为 public；若保持 private，服务器使用只有 `read:packages` 的令牌登录 GHCR，不使用个人全权限令牌，也不把令牌写入 `.env`。
 
-`bash scripts/smoke-compose.sh` 使用本地 `monee-api:smoke`、`monee-web:smoke` 镜像，创建独立网络、数据卷和临时 TLS 代理。验证证书、静态资源、路由刷新、同源 API、401/403、OAuth 跳转与安全 Cookie、API 出网、凭据权限和重启健康；结束后清理本次创建的资源。只使用合成 OAuth 配置，不完成真实用户登录。需要 Docker、Compose v2、OpenSSL 和 jq。
+`bash scripts/smoke-compose.sh` 使用本地 `monee-api:smoke`、`monee-web:smoke` 镜像，创建独立网络、数据卷和临时 TLS 代理。验证证书、静态资源、路由刷新、同源 API、401/403、OAuth 跳转与安全 Cookie、API 出网、凭据权限和重启健康；还会强制重建 API 并占住旧 IP，确认 Web 无需重启即可恢复 API 和登录代理。结束后清理本次创建的资源。只使用合成 OAuth 配置，不完成真实用户登录。需要 Docker、Compose v2、OpenSSL 和 jq。
+
+Web 使用 Docker 内置 DNS 和 Nginx 动态上游解析（开源版要求 Nginx 1.27.3 或更新），API 容器替换时最多约 5 秒后刷新地址；不要将其改回仅启动时解析的固定上游配置。
 
 ## 首次准备
 
