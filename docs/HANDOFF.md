@@ -10,7 +10,7 @@
 - Go 服务新增显式 HTTPS 公网 Origin；生产 Cookie 使用 Secure，Host/Origin 防护继续生效。本地回环 HTTP 保持兼容。
 - API 镜像携带一致性数据库快照/离线恢复工具；OAuth 配置、`redaction.key` 与数据库快照仍须分别加密备份。
 - Go race/vet、共享 JVM 测试、Web 生产构建、Mac 分发构建及本机生产 Origin/Cookie 合成验证通过。
-- PR #12 提交 `581e4e4` 的三平台项目 CI 和 API/Web 镜像构建、单镜像冒烟均通过。2026-09-19 复核发现 API 隔离网络阻断 OAuth 出网，已增加独立出网网络，并补充使用临时 TLS 代理和独立卷的 Compose 联调脚本/CI；该增量结果待回填。本机现有 Colima Docker 可用。真实 OAuth/正式证书和生产切换仍未完成。完整记录见 [M-38 验证](verification/compose-deployment-2026-09-18.md)。
+- PR #12 功能提交 `2800360` 的三平台项目 CI、API/Web 镜像和完整 Compose 联调六项检查均通过。2026-09-19 修复 API 隔离网络阻断 OAuth 出网的问题，增加独立出网网络；临时可信 TLS 代理验证同源请求、401/403、OAuth 跳转、安全 Cookie、出网、卷权限和重启。本机 Web/Mac 登录入口通过合成配置实测。真实登录/账本操作和生产切换仍未完成；现有 `monee.test.letra.xin` 连接另一份运行版本，临时切换测试入口待用户确认。完整记录见 [M-38 验证](verification/compose-deployment-2026-09-18.md)。
 
 ## 当前接续：微信 CSV 与脱敏预览（2026-09-17）
 
