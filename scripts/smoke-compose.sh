@@ -30,7 +30,7 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir "$scratch/auth" "$scratch/certs"
-cp fixtures/synthetic/deployment/auth.json "$scratch/auth/auth.json"
+cp fixtures/synthetic/deployment/auth.synthetic.json "$scratch/auth/auth.json"
 chmod 700 "$scratch/auth"
 chmod 600 "$scratch/auth/auth.json"
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
