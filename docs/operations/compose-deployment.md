@@ -2,7 +2,7 @@
 
 Monee 的生产部署使用两个运行容器，但保持一个浏览器同源：
 
-- `api`：Go 模块化单体、OAuth、账本规则和 SQLite；只连接内部网络。
+- `api`：Go 模块化单体、OAuth、账本规则和 SQLite；连接内部网络和独立出网网络，以访问 Google/GitHub 的发现、令牌和身份接口。API 不加入外部代理网络，也不发布主机端口。
 - `web`：Kotlin/Wasm 静态资源，并把 `/api/`、`/auth/` 转发给 `api`；通过共享的代理网络接入现有 Nginx Proxy Manager。
 - `data-init`：启动前把私有 `auth.json` 复制进数据卷，校正为非 root 运行用户可读的 `0600`；它不是常驻服务。
 
@@ -10,7 +10,7 @@ Monee 的生产部署使用两个运行容器，但保持一个浏览器同源�
 
 ## 构建与发布边界
 
-`.github/workflows/container-images.yml` 在 PR 上只验证镜像能否构建，在 `main`、版本标签或手动运行时发布：
+`.github/workflows/container-images.yml` 在 PR 上构建镜像并运行隔离 Compose 验证，在 `main`、版本标签或手动运行时发布：
 
 - `ghcr.io/letrahoo/monee-api:sha-<完整提交>`
 - `ghcr.io/letrahoo/monee-web:sha-<完整提交>`
@@ -18,6 +18,8 @@ Monee 的生产部署使用两个运行容器，但保持一个浏览器同源�
 生产部署必须使用同一个不可变 `sha-...` 标签，不使用 `latest`。原有 `build.yml` 继续负责 Go 测试、KMP 测试、Web 构建和桌面发行资源；容器工作流只增加可部署镜像，不替代客户端 CI。
 
 首次发布后应将两个 GHCR package 设为 public；若保持 private，服务器使用只有 `read:packages` 的令牌登录 GHCR，不使用个人全权限令牌，也不把令牌写入 `.env`。
+
+`bash scripts/smoke-compose.sh` 使用本地 `monee-api:smoke`、`monee-web:smoke` 镜像，创建独立网络、数据卷和临时 TLS 代理。验证证书、静态资源、路由刷新、同源 API、401/403、OAuth 跳转与安全 Cookie、API 出网、凭据权限和重启健康；结束后清理本次创建的资源。只使用合成 OAuth 配置，不完成真实用户登录。需要 Docker、Compose v2、OpenSSL 和 jq。
 
 ## 首次准备
 

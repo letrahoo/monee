@@ -4,13 +4,13 @@
 
 ## 当前接续：HTTPS 容器化生产部署（2026-09-18）
 
-当前分支 `feat/compose-deployment` 基于 main `f0b06a4`，对应 Notion M-38，仍为未提交工作区，不得当作已进入主干或已上线。
+当前分支 `feat/compose-deployment` 基于 main `f0b06a4`，对应 Notion M-38、PR #12，尚未合并或上线。
 
 - 新增 Go API / Kotlin-Wasm Web 双镜像、Compose 编排、GHCR 构建发布工作流、非 root/只读运行约束、健康检查、同源反向代理和固定 SHA 回滚流程。
 - Go 服务新增显式 HTTPS 公网 Origin；生产 Cookie 使用 Secure，Host/Origin 防护继续生效。本地回环 HTTP 保持兼容。
 - API 镜像携带一致性数据库快照/离线恢复工具；OAuth 配置、`redaction.key` 与数据库快照仍须分别加密备份。
 - Go race/vet、共享 JVM 测试、Web 生产构建、Mac 分发构建及本机生产 Origin/Cookie 合成验证通过。
-- 本机无 Docker；PR #12 最新提交 `a54dde5` 的三平台项目 CI 和 API/Web 镜像构建、单镜像冒烟均通过。阿里云只读预检确认 Docker/Compose 可用，但候选源码尚未获准上传，因此完整 Compose 双容器联调、正式发布物、OAuth/证书及生产切换仍未完成。完整记录见 [M-38 验证](verification/compose-deployment-2026-09-18.md)。
+- PR #12 提交 `581e4e4` 的三平台项目 CI 和 API/Web 镜像构建、单镜像冒烟均通过。2026-09-19 复核发现 API 隔离网络阻断 OAuth 出网，已增加独立出网网络，并补充使用临时 TLS 代理和独立卷的 Compose 联调脚本/CI；该增量结果待回填。本机现有 Colima Docker 可用。真实 OAuth/正式证书和生产切换仍未完成。完整记录见 [M-38 验证](verification/compose-deployment-2026-09-18.md)。
 
 ## 当前接续：微信 CSV 与脱敏预览（2026-09-17）
 

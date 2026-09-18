@@ -46,6 +46,7 @@ services:
       - monee-data:/data
     networks:
       - private
+      - egress
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
@@ -90,6 +91,9 @@ services:
 networks:
   private:
     internal: true
+  # OAuth discovery, token exchange and identity lookup require HTTPS egress.
+  # No host ports are published, and the edge proxy does not join this network.
+  egress:
   edge:
     external: true
     name: ${MONEE_EDGE_NETWORK:-monee-edge}
