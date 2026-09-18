@@ -54,6 +54,8 @@ MONEE_DATA_VOLUME=monee-data
 
 OAuth 应用回调地址必须与正式域名一致：
 
+公网地址会统一小写、默认端口和 IPv6 压缩写法。国际化域名须填写 ASCII punycode（例如 `xn--bcher-kva.example`），不接受原始 Unicode 域名；IPv4 须使用标准四段十进制，不支持简写、八进制、十六进制、带区域标识或 IPv4-mapped IPv6，以免浏览器与服务端对同一地址产生不同解释。
+
 ```text
 https://finance.letra.xin/auth/callback/google
 https://finance.letra.xin/auth/callback/github

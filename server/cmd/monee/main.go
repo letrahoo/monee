@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/signal"
@@ -21,6 +22,7 @@ import (
 	"github.com/letrahoo/monee/server/internal/auth"
 	"github.com/letrahoo/monee/server/internal/httpapi"
 	"github.com/letrahoo/monee/server/internal/redaction"
+	"golang.org/x/net/idna"
 )
 
 func run() error {
@@ -131,9 +133,9 @@ func deploymentURLs(listenHost, listenPort, configured string) (string, string, 
 	}
 	// Browsers serialize origins with lowercase hosts and no default port.
 	// Use the same spelling for request validation, OAuth and health checks.
-	hostname := strings.ToLower(u.Hostname())
-	if hostname == "" {
-		return "", "", errors.New("public-url must have a hostname")
+	hostname, err := canonicalPublicHostname(u.Hostname())
+	if err != nil {
+		return "", "", err
 	}
 	port := u.Port()
 	if port != "" {
@@ -155,6 +157,52 @@ func deploymentURLs(listenHost, listenPort, configured string) (string, string, 
 	u.Path = ""
 	return u.String(), u.Host, nil
 }
+
+func canonicalPublicHostname(value string) (string, error) {
+	for _, c := range value {
+		if c > 127 {
+			return "", errors.New("public-url requires an ASCII hostname (use punycode for IDNs)")
+		}
+	}
+	host := strings.ToLower(value)
+	if address, err := netip.ParseAddr(host); err == nil {
+		// Scoped and IPv4-mapped IPv6 forms do not share Go/browser serialization.
+		if address.Zone() != "" || address.Is4In6() {
+			return "", errors.New("public-url requires an unscoped IPv6 or canonical IPv4 address")
+		}
+		return address.String(), nil
+	}
+	// Explicitly require ASCII DNS spelling; operators can supply the IDN's
+	// punycode name. Reject instead of producing percent-escaped OAuth hosts.
+	labels := strings.Split(strings.TrimSuffix(host, "."), ".")
+	if len(host) > 253 {
+		return "", errors.New("public-url hostname is too long")
+	}
+	for _, label := range labels {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return "", errors.New("public-url requires a valid ASCII DNS hostname (use punycode for IDNs)")
+		}
+		for _, c := range label {
+			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+				return "", errors.New("public-url requires a valid ASCII DNS hostname (use punycode for IDNs)")
+			}
+		}
+	}
+	// Browsers interpret numeric endings as legacy IPv4, including abbreviated,
+	// octal and hexadecimal spellings. Only ParseAddr's canonical IPv4 is allowed.
+	last := labels[len(labels)-1]
+	if strings.Trim(last, "0123456789") == "" || strings.HasPrefix(last, "0x") {
+		return "", errors.New("public-url requires canonical dotted-decimal IPv4")
+	}
+	// An ASCII xn-- label still needs IDNA validation: not every syntactically
+	// valid DNS label decodes to characters a browser may use in a hostname.
+	canonical, err := idna.Lookup.ToASCII(host)
+	if err != nil || canonical != host {
+		return "", errors.New("public-url requires a valid canonical ASCII IDNA hostname")
+	}
+	return host, nil
+}
+
 func main() {
 	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
 		if err := checkHealth(); err != nil {

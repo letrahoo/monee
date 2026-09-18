@@ -6,11 +6,12 @@
 
 当前分支 `feat/compose-deployment` 基于 main `f0b06a4`，对应 Notion M-38、PR #12，尚未合并或上线。
 
-- 新增 Go API / Kotlin-Wasm Web 双镜像、Compose 编排、GHCR 构建发布工作流、非 root/只读运行约束、健康检查、同源反向代理和固定 SHA 回滚流程。
+- 新增 Go API / Kotlin-Wasm Web 双镜像、Compose 编排、GHCR 构建发布工作流、非 root/只读运行约束、健康检查、同源反向代理和固定镜像 digest 回滚流程；SHA 标签不是不可变部署引用。
 - Go 服务新增显式 HTTPS 公网 Origin；生产 Cookie 使用 Secure，Host/Origin 防护继续生效。本地回环 HTTP 保持兼容。
 - API 镜像携带一致性数据库快照/离线恢复工具；OAuth 配置、`redaction.key` 与数据库快照仍须分别加密备份。
 - Go race/vet、共享 JVM 测试、Web 生产构建、Mac 分发构建及本机生产 Origin/Cookie 合成验证通过。
-- PR #12 功能提交 `2800360` 的三平台项目 CI、API/Web 镜像和完整 Compose 联调六项检查均通过。2026-09-19 修复 API 隔离网络阻断 OAuth 出网的问题，增加独立出网网络；临时可信 TLS 代理验证同源请求、401/403、OAuth 跳转、安全 Cookie、出网、卷权限和重启。本机 Web/Mac 登录入口通过合成配置实测。真实登录/账本操作和生产切换仍未完成；现有 `monee.test.letra.xin` 连接另一份运行版本，临时切换测试入口待用户确认。完整记录见 [M-38 验证](verification/compose-deployment-2026-09-18.md)。
+- PR #12 提交 `fee2d61` 的三平台项目 CI、API/Web 镜像和完整 Compose 联调六项检查均通过。已补 OAuth 出网、API 更换 IP 自动恢复、查询参数日志保护、日志轮转、digest 发布记录及 DB/WAL/SHM 整组回滚。GitHub 后续复查的 IPv6/IDN 问题继续修复：规范 IPv6，IDN 要求 ASCII punycode，拒绝歧义地址。
+- 用户已授权临时测试路由、独立/GitHub Agent 复查及全部门槛通过后直接合并，不需要重新请求这些授权。已在独立候选卷验证真实测试域名的可信 HTTPS、页面/刷新路由/资源和 401 边界，原账本未写入。浏览器仍需完成外层 Basic Auth，真实 OAuth 及登录后的独立账本操作尚未验收，不能合并或标记完成。接续须先核对临时路由是否已恢复；本机 ARM64 验收镜像与 CI 生产 AMD64 镜像的来源差异见 [M-38 验证](verification/compose-deployment-2026-09-18.md)。
 
 ## 当前接续：微信 CSV 与脱敏预览（2026-09-17）
 
