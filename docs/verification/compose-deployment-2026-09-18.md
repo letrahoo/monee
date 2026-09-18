@@ -67,3 +67,9 @@
 - 本机额外完整 Compose 回归在下载官方 `nginx:1.29-alpine` 时两次遇到 registry EOF，未完成；独立合成容器和卷已由测试清理。不能写成本机完整 Compose 已通过，同提交 GitHub Compose 已通过。
 
 PR 保持未合并；Notion 保持待验收。首次正式发布 digest artifact、真实登录及账本操作仍是后续门槛。没有修改阿里云环境。下一项 M-08 仅预读需求，未开始实现。
+
+## 2026-09-19 认证入口调整与 HTTP 边界
+
+用户明确要求移除 Monee 最外层 Basic Auth。已仅调整 Monee 的本机 LAN/Tailnet 入口，保留应用 Google/GitHub OAuth、账号准入、账本授权及安全响应头；简历/Hermes 仍需外层密码。实测无凭据首页 200、未登录账本 401、其他站点 401、可信 HTTPS 和 HTTP 308 正常。隧道不再无条件改写 Origin，只转换既有正式别名，错误来源仍为 403。现有应用会话刷新后有效，未对真实账本试写。
+
+GitHub 第三轮指出通配监听可误配 HTTP loopback Origin。HTTP 例外现同时要求 loopback-only 监听和 loopback Origin，补两个拒绝用例；本机完整 Go race/vet 与独立复查通过。后续提交须重新完成 CI；真实候选 OAuth/账本验收继续，不能用原服务登录成功代替。

@@ -128,8 +128,8 @@ func deploymentURLs(listenHost, listenPort, configured string) (string, string, 
 		return "", "", errors.New("public-url must be an absolute origin without credentials, path, query, or fragment")
 	}
 	u.Scheme = strings.ToLower(u.Scheme)
-	if u.Scheme != "https" && !(u.Scheme == "http" && u.Hostname() == "127.0.0.1") {
-		return "", "", errors.New("public-url must use HTTPS except for 127.0.0.1")
+	if u.Scheme != "https" && !(u.Scheme == "http" && listenHost == "127.0.0.1" && u.Hostname() == "127.0.0.1") {
+		return "", "", errors.New("public-url must use HTTPS except for a loopback-only listener and 127.0.0.1 origin")
 	}
 	// Browsers serialize origins with lowercase hosts and no default port.
 	// Use the same spelling for request validation, OAuth and health checks.
