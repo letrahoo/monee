@@ -143,7 +143,7 @@ func (s *Store) insert(tx *sql.Tx, t Transaction) error {
 	if err != nil {
 		return err
 	}
-	category, err := s.account(tx, t.Type, t.Category)
+	category, err := s.account(tx, categoryKind(t), t.Category)
 	if err != nil {
 		return err
 	}
@@ -152,8 +152,15 @@ func (s *Store) insert(tx *sql.Tx, t Transaction) error {
 		key = identity(t)
 	}
 	timestamp := now()
-	_, err = tx.Exec(`INSERT INTO transactions(id,ledger_id,occurred_on,kind,amount_minor,currency,merchant,category,source,account,external_id,note,identity_key,fingerprint,similarity_key,version,device_id,created_at,updated_at)
- VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)`, t.ID, s.ledgerID, t.Date, t.Type, minor, t.Currency, t.Merchant, t.Category, t.Source, t.Account, t.ExternalID, t.Note, key, fingerprint(t), similarity(t), s.deviceID, timestamp, timestamp)
+	columns := "id,ledger_id,occurred_on,kind,amount_minor,currency,merchant,category,source,account,external_id,note,identity_key,fingerprint,similarity_key,version,device_id,created_at,updated_at"
+	values := "?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?"
+	args := []any{t.ID, s.ledgerID, t.Date, t.Type, minor, t.Currency, t.Merchant, t.Category, t.Source, t.Account, t.ExternalID, t.Note, key, fingerprint(t), similarity(t), s.deviceID, timestamp, timestamp}
+	if t.Type == "refund" {
+		columns += ",refund_of"
+		values += ",?"
+		args = append(args, t.RefundOf)
+	}
+	_, err = tx.Exec("INSERT INTO transactions("+columns+") VALUES("+values+")", args...)
 	if err != nil {
 		return err
 	}
@@ -236,12 +243,12 @@ func (s *Store) Create(in Input, key string) (Transaction, error) {
 	return t, tx.Commit()
 }
 
-const transactionColumns = `id,occurred_on,kind,amount_minor,currency,merchant,category,source,account,external_id,note,version`
+const transactionColumns = `id,occurred_on,kind,amount_minor,currency,merchant,category,source,account,external_id,note,version,COALESCE(refund_of,'')`
 
 func scanRecord(row interface{ Scan(...any) error }) (Transaction, error) {
 	var t Transaction
 	var minor int64
-	err := row.Scan(&t.ID, &t.Date, &t.Type, &minor, &t.Currency, &t.Merchant, &t.Category, &t.Source, &t.Account, &t.ExternalID, &t.Note, &t.Version)
+	err := row.Scan(&t.ID, &t.Date, &t.Type, &minor, &t.Currency, &t.Merchant, &t.Category, &t.Source, &t.Account, &t.ExternalID, &t.Note, &t.Version, &t.RefundOf)
 	t.AmountMinor = strconv.FormatInt(minor, 10)
 	return t, err
 }
@@ -293,9 +300,10 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 		return d, err
 	}
 	defer rows.Close()
-	var income, expense int64
+	var income, expense, refunds int64
 	sources := map[string]bool{}
 	categories := map[string]int64{}
+	categoryRefunds := map[string]int64{}
 	query = strings.ToLower(strings.TrimSpace(query))
 	for rows.Next() {
 		t, e := scanRecord(rows)
@@ -303,7 +311,13 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 			return d, e
 		}
 		minor, _ := strconv.ParseInt(t.AmountMinor, 10, 64)
-		if minor > 0 {
+		if t.Type == "refund" {
+			if minor <= 0 || refunds > math.MaxInt64-minor {
+				return d, problem("overflow", "统计金额超出可表示范围")
+			}
+			refunds += minor
+			categoryRefunds[t.Category] += minor
+		} else if minor > 0 {
 			if income > math.MaxInt64-minor {
 				return d, problem("overflow", "统计金额超出可表示范围")
 			}
@@ -328,10 +342,17 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 		return d, err
 	}
 	d.IncomeMinor = strconv.FormatInt(income, 10)
-	d.ExpenseMinor = strconv.FormatInt(expense, 10)
+	d.GrossExpenseMinor = strconv.FormatInt(expense, 10)
+	d.RefundMinor = strconv.FormatInt(refunds, 10)
+	d.ExpenseMinor = strconv.FormatInt(expense-refunds, 10)
 	d.SourceCount = len(sources)
+	for name := range categoryRefunds {
+		if _, exists := categories[name]; !exists {
+			categories[name] = 0
+		}
+	}
 	for name, minor := range categories {
-		d.Categories = append(d.Categories, CategoryTotal{name, strconv.FormatInt(minor, 10)})
+		d.Categories = append(d.Categories, CategoryTotal{Name: name, AmountMinor: strconv.FormatInt(minor-categoryRefunds[name], 10), GrossExpenseMinor: strconv.FormatInt(minor, 10), RefundMinor: strconv.FormatInt(categoryRefunds[name], 10)})
 	}
 	sort.Slice(d.Categories, func(i, j int) bool {
 		a, _ := strconv.ParseInt(d.Categories[i].AmountMinor, 10, 64)

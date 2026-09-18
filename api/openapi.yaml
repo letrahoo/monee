@@ -2,12 +2,12 @@
 openapi: 3.1.0
 info:
   title: Monee Local Ledger API
-  version: 1.5.0
+  version: 1.6.0
   description: Unified product users with explicitly linked Google/GitHub identities.
     System admission is separate from ledger ownership/editor/viewer memberships.
     All data access is enforced by Go. Feishu is reserved for a future provider adapter.
-    Local loopback HTTP only; cloud deployment is not yet supported. Cookie-authenticated
-    writes require X-Monee-CSRF. Application database schema version 2.
+    Supports local loopback HTTP and configured HTTPS same-origin deployment. Cookie-authenticated
+    writes require X-Monee-CSRF. Application database schema version 3.
 servers:
 - url: http://127.0.0.1:4173
 security:
@@ -43,7 +43,7 @@ paths:
                     const: 1
                   schemaVersion:
                     type: integer
-                    const: 2
+                    const: 3
                   instanceId:
                     type: string
                     pattern: '^[0-9a-f]{64}$'
@@ -97,6 +97,57 @@ paths:
                 "$ref": "#/components/schemas/Dashboard"
         default:
           "$ref": "#/components/responses/Error"
+  "/api/v1/transactions/{id}/refunds":
+    parameters:
+    - in: path
+      name: id
+      required: true
+      schema: {type: string, format: uuid}
+    - in: header
+      name: X-Monee-Ledger
+      schema: {type: string}
+      description: Explicit ledger scope; membership is checked on every request.
+    get:
+      operationId: getRefunds
+      description: Returns the original expense, all active linked refunds and remaining
+        amount. A refund ID resolves its original expense. Viewers may read.
+      responses:
+        '200':
+          description: Linked refund summary; integer fen strings.
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/RefundSummary"}
+        default: {"$ref": "#/components/responses/Error"}
+    post:
+      operationId: createRefund
+      description: Owner/editor only. ID must be an active expense in the same ledger.
+        Date cannot precede consumption; active refunds cannot exceed the expense.
+        The original transaction version and ledger version advance atomically with
+        balanced postings and audit records. Refunds reduce expenses on their own date,
+        never count as income and do not rewrite prior months. Same normalized request
+        and key replay the saved response even after version advances; authorization is
+        rechecked before replay. Reusing a key for other data or another operation is 409.
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema: {type: string, minLength: 16, maxLength: 128}
+      - in: header
+        name: X-Monee-CSRF
+        schema: {type: string}
+        description: Required for cookie-authenticated writes, not native Bearer sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref": "#/components/schemas/RefundInput"}
+      responses:
+        '201':
+          description: New refund, or original saved response on retry.
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/Transaction"}
+        default: {"$ref": "#/components/responses/Error"}
   "/api/v1/transactions":
     post:
       operationId: createTransaction
@@ -1734,6 +1785,7 @@ components:
           enum:
           - income
           - expense
+          - refund
         amountMinor:
           "$ref": "#/components/schemas/Minor"
         currency:
@@ -1751,12 +1803,40 @@ components:
             balance.
         externalId:
           type: string
+        refundOf:
+          type: string
+          format: uuid
+          description: Present only for refunds; stable original expense ID in this ledger.
         note:
           type: string
         version:
           type: integer
           format: int64
           minimum: 1
+    RefundInput:
+      type: object
+      additionalProperties: false
+      required: [version, date, amount, currency]
+      properties:
+        version: {type: integer, format: int64, minimum: 1}
+        date: {type: string, format: date}
+        amount:
+          type: string
+          pattern: '^[0-9]{1,11}(\.[0-9]{1,2})?$'
+          description: Positive yuan, at most two decimals and no greater than remaining refundable amount.
+        currency: {type: string, const: CNY}
+        account: {type: string, maxLength: 200, description: 'Receiving clearing account; empty becomes 待核实资金账户.'}
+        note: {type: string, maxLength: 1000}
+    RefundSummary:
+      type: object
+      required: [original, refundedMinor, remainingMinor, refunds]
+      properties:
+        original: {"$ref": "#/components/schemas/Transaction"}
+        refundedMinor: {"$ref": "#/components/schemas/Minor"}
+        remainingMinor: {"$ref": "#/components/schemas/Minor"}
+        refunds:
+          type: array
+          items: {"$ref": "#/components/schemas/Transaction"}
     Dashboard:
       type: object
       required:
@@ -1767,6 +1847,8 @@ components:
       - months
       - incomeMinor
       - expenseMinor
+      - grossExpenseMinor
+      - refundMinor
       - sourceCount
       - totalCount
       - filteredCount
@@ -1797,7 +1879,13 @@ components:
           description: Nonnegative monthly income in fen.
         expenseMinor:
           "$ref": "#/components/schemas/Minor"
-          description: Nonnegative monthly expense in fen.
+          description: Net monthly expense in fen (gross minus refunds); may be negative.
+        grossExpenseMinor:
+          "$ref": "#/components/schemas/Minor"
+          description: Nonnegative gross monthly expense in fen.
+        refundMinor:
+          "$ref": "#/components/schemas/Minor"
+          description: Nonnegative refunds occurring in the selected month, not income.
         sourceCount:
           type: integer
           minimum: 0
@@ -1821,12 +1909,18 @@ components:
             required:
             - name
             - amountMinor
+            - grossExpenseMinor
+            - refundMinor
             properties:
               name:
                 type: string
               amountMinor:
                 "$ref": "#/components/schemas/Minor"
-                description: Positive expense total in fen.
+                description: Net expense total in fen; may be negative.
+              grossExpenseMinor:
+                "$ref": "#/components/schemas/Minor"
+              refundMinor:
+                "$ref": "#/components/schemas/Minor"
         transactions:
           type: array
           maxItems: 50

@@ -72,6 +72,10 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
     var confirmedSimilar by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf(TransactionInput()) }
     var createKey by remember { mutableStateOf(requestKey()) }
+    var refundSummary by remember { mutableStateOf<RefundSummary?>(null) }
+    // Keep uncertain writes above the polling/list UI: version refresh or closing
+    // the panel must not silently generate a second idempotency key.
+    var refundSubmission by remember { mutableStateOf(api.pendingRefund(ledger.id)) }
 
     LaunchedEffect(month, query, page, refresh) {
         loading = true
@@ -137,6 +141,25 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                 if(ledger.role=="viewer")Text("只读账本",color=Muted)
                 notice?.let { Text(it,color=Pine) }
                 actionError?.let { Text(it,color=MaterialTheme.colors.error) }
+                if(refundSubmission!=null&&panel!="refund")TextButton(onClick={runAction {
+                    refundSummary=api.refunds(ledger.id,refundSubmission!!.originalId);panel="refund"
+                }},enabled=!working){Text("继续确认上次退款")}
+                if(panel=="refund")refundSummary?.let { summary ->
+                    RefundPanel(summary,dashboard?.today.orEmpty(),ledger.role=="viewer",working,refundSubmission,
+                        onSubmit={change->runAction {
+                            val submission=api.prepareRefund(ledger.id,summary.original.id,change,::requestKey).also { refundSubmission=it }
+                            try {
+                                val result=api.createRefund(ledger.id,submission)
+                                refundSubmission=null;refundSummary=null
+                                saved(result.date.take(7),"退款已保存")
+                            } catch(e:LedgerException) {
+                                refundSubmission=api.pendingRefund(ledger.id)
+                                throw e
+                            }
+                        }},
+                        onRefresh={runAction {refundSummary=api.refunds(ledger.id,summary.original.id)}},
+                        onClose={panel=""})
+                }
                 if(panel=="import") {
                     TextButton(onClick={panel=""},enabled=!working){Text("收起导入")}
                     ImportPanel(csv,filename,preview,confirmedSimilar,working||ledger.role=="viewer",
@@ -215,10 +238,10 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                         }
                     }
                     if(compact) Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                        Metric("${data.month} 支出",data.expenseMinor,true,Modifier.fillMaxWidth())
+                        Metric("${data.month} 净支出",data.expenseMinor,true,Modifier.fillMaxWidth())
                         Metric("${data.month} 收入",data.incomeMinor,false,Modifier.fillMaxWidth())
                     } else Row(horizontalArrangement=Arrangement.spacedBy(18.dp)) {
-                        Metric("${data.month} 支出",data.expenseMinor,true,Modifier.weight(1f))
+                        Metric("${data.month} 净支出",data.expenseMinor,true,Modifier.weight(1f))
                         Metric("${data.month} 收入",data.incomeMinor,false,Modifier.weight(1f))
                         Surface(color=Color.White,shape=RoundedCornerShape(18.dp),modifier=Modifier.weight(1f)) {
                             Column(Modifier.padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
@@ -227,14 +250,16 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                             }
                         }
                     }
+                    Text("消费毛额 ${formatMoney(data.grossExpenseMinor.toLong())} · 退款 ${formatMoney(data.refundMinor.toLong())} · 净支出 ${formatMoney(data.expenseMinor.toLong())}",color=Muted)
                     if(data.categories.isNotEmpty()) {
                         Surface(color=Color.White,shape=RoundedCornerShape(18.dp)) {
                             Column(Modifier.fillMaxWidth().padding(24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                                Text("支出分布",color=Pine,fontWeight=FontWeight.Bold)
+                                Text("分类净支出",color=Pine,fontWeight=FontWeight.Bold)
+                                Text("条形表示消费毛额占比；金额已扣除当月退款。",fontSize=12.sp,color=Muted)
                                 data.categories.take(8).forEach { item ->
                                     Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                                         Text(item.name,Modifier.width(70.dp),fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
-                                        LinearProgressIndicator(item.amountMinor.toLong().toFloat()/data.expenseMinor.toLong().toFloat(),Modifier.weight(1f).height(7.dp),color=Pine,backgroundColor=Line)
+                                        LinearProgressIndicator(expenseShare(item.grossExpenseMinor,data.grossExpenseMinor),Modifier.weight(1f).height(7.dp),color=Pine,backgroundColor=Line)
                                         Text(formatMoney(item.amountMinor.toLong()),fontSize=12.sp)
                                     }
                                 }
@@ -266,6 +291,10 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                                         Text("日期：${item.date}\n来源：${item.source}\n资金账户：${item.account}（待核实）")
                                         if(item.externalId.isNotEmpty()&&!item.externalId.contains("-native-v1:"))Text("来源流水号：${item.externalId}")
                                         if(item.note.isNotEmpty())Text("备注：${item.note}")
+                                        if(item.type=="refund")Text("消费退款（不计入收入）",color=Pine)
+                                        if(item.type=="expense"||item.type=="refund")TextButton(onClick={runAction {
+                                            refundSummary=api.refunds(ledger.id,item.id);panel="refund"
+                                        }},enabled=!working&&(refundSubmission==null||refundSubmission?.originalId==(item.refundOf.ifBlank { item.id }))){Text(if(item.type=="refund")"查看原消费与退款"else"退款记录 / 登记退款")}
                                         TextButton(onClick={runAction {sourceLinks=api.transactionSources(ledger.id,item.id);sourceID=item.id}},enabled=!working){Text("来源批次")}
                                         if(sourceID==item.id) {
                                             if(sourceLinks.isEmpty())Text("这笔交易没有导入来源",fontSize=12.sp,color=Muted)
@@ -278,7 +307,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                                         if(ledger.role!="viewer") AnnotationEditor(item,working,onSave={category,note->runAction {
                                             api.annotate(ledger.id,item.id,AnnotationInput(item.version,category,note));notice="分类与备注已保存";refresh++;revisionID=""
                                         }})
-                                        if(ledger.role!="viewer") CorrectionEditor(item,working,
+                                        if(ledger.role!="viewer"&&item.type!="refund") CorrectionEditor(item,working,
                                             onPreview={change,accept->runAction { accept(api.previewCorrection(ledger.id,item.id,change)) }},
                                             onConfirm={change->runAction { api.correct(ledger.id,item.id,change);notice="金额与收支性质已更正";refresh++;revisionID="" }})
                                         TextButton(onClick={runAction { revisions=api.annotationHistory(ledger.id,item.id);corrections=api.correctionHistory(ledger.id,item.id);revisionID=item.id }},enabled=!working){Text("修改记录")}

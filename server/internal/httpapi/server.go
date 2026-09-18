@@ -84,6 +84,7 @@ func (a API) Handler() http.Handler {
 	a.registerRedactionPreview(mux)
 	a.registerAnnotations(mux)
 	a.registerCorrections(mux)
+	a.registerRefunds(mux)
 	a.registerImportUndo(mux)
 	a.registerReviewQueue(mux)
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {

@@ -101,7 +101,11 @@ func (s *Store) PreviewCorrection(id string, in CorrectionInput) (CorrectionPrev
 	if err != nil {
 		return CorrectionPreview{}, err
 	}
-	return correctionPreview(before, in)
+	out, err := correctionPreview(before, in)
+	if err != nil {
+		return out, err
+	}
+	return out, s.validateRefundCorrection(s.db, id, out.After)
 }
 
 func (s *Store) Correct(id string, in CorrectionInput) (Transaction, error) {
@@ -125,6 +129,9 @@ func (s *Store) Correct(id string, in CorrectionInput) (Transaction, error) {
 		return out, err
 	}
 	out = preview.After
+	if err = s.validateRefundCorrection(tx, id, out); err != nil {
+		return out, err
+	}
 	if out == before {
 		return out, nil
 	}

@@ -3,6 +3,7 @@ package ledger
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -31,11 +32,28 @@ func schema2Store(t *testing.T) (*Store, string) {
 
 func TestRefundMigrationPreservesDataAndBackup(t *testing.T) {
 	old, path := schema2Store(t)
-	p := preview(t, old, sampleCSV)
-	if _, err := old.Commit(p.ID, p.LedgerVersion, false); err != nil {
-		t.Fatal(err)
+	// Seed the real v2 column layout, without invoking v3 read queries.
+	var first Transaction
+	for i, in := range []Input{
+		{Date: "2026-09-14", Type: "expense", Amount: "28.50", Currency: "CNY", Merchant: "咖啡", Category: "餐饮", Source: "支付宝"},
+		{Date: "2026-09-13", Type: "expense", Amount: "96", Currency: "CNY", Merchant: "书店", Category: "学习", Source: "微信"},
+		{Date: "2026-09-10", Type: "income", Amount: "25000", Currency: "CNY", Merchant: "工资", Category: "工资", Source: "银行"},
+	} {
+		record, err := old.Create(in, fmt.Sprintf("migration-seed-%04d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			first = record
+		}
+		if _, err := old.db.Exec("INSERT INTO imports(id,ledger_id,filename,content_hash,raw_csv,parser_version,ledger_version,preview_json,created_at,committed_at) VALUES(?,?,'synthetic.csv',?,'synthetic',1,0,'{}',?,?)", record.ID, old.ledgerID, record.ID, now(), now()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := old.db.Exec("INSERT INTO source_records VALUES(?,?,1,?,?,'added')", newID(), record.ID, record.ID, encode(record)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	before := dashboard(t, old)
+	before := Dashboard{TotalCount: 3, ExpenseMinor: "12450", IncomeMinor: "2500000", Version: 3, Transactions: []Transaction{first}}
 	sources := count(t, old, "source_records")
 	changes := count(t, old, "change_log")
 	old.Close()

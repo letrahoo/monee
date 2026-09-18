@@ -49,27 +49,32 @@ type Transaction struct {
 	ExternalID  string `json:"externalId"`
 	Note        string `json:"note"`
 	Version     int64  `json:"version"`
+	RefundOf    string `json:"refundOf,omitempty"`
 }
 
 type CategoryTotal struct {
-	Name        string `json:"name"`
-	AmountMinor string `json:"amountMinor"`
+	Name              string `json:"name"`
+	AmountMinor       string `json:"amountMinor"`
+	GrossExpenseMinor string `json:"grossExpenseMinor"`
+	RefundMinor       string `json:"refundMinor"`
 }
 type Dashboard struct {
-	LedgerID      string          `json:"ledgerId"`
-	Version       int64           `json:"version"`
-	Month         string          `json:"month"`
-	Today         string          `json:"today"`
-	Months        []string        `json:"months"`
-	IncomeMinor   string          `json:"incomeMinor"`
-	ExpenseMinor  string          `json:"expenseMinor"`
-	SourceCount   int             `json:"sourceCount"`
-	TotalCount    int             `json:"totalCount"`
-	FilteredCount int             `json:"filteredCount"`
-	Page          int             `json:"page"`
-	PageSize      int             `json:"pageSize"`
-	Categories    []CategoryTotal `json:"categories"`
-	Transactions  []Transaction   `json:"transactions"`
+	LedgerID          string          `json:"ledgerId"`
+	Version           int64           `json:"version"`
+	Month             string          `json:"month"`
+	Today             string          `json:"today"`
+	Months            []string        `json:"months"`
+	IncomeMinor       string          `json:"incomeMinor"`
+	ExpenseMinor      string          `json:"expenseMinor"`
+	GrossExpenseMinor string          `json:"grossExpenseMinor"`
+	RefundMinor       string          `json:"refundMinor"`
+	SourceCount       int             `json:"sourceCount"`
+	TotalCount        int             `json:"totalCount"`
+	FilteredCount     int             `json:"filteredCount"`
+	Page              int             `json:"page"`
+	PageSize          int             `json:"pageSize"`
+	Categories        []CategoryTotal `json:"categories"`
+	Transactions      []Transaction   `json:"transactions"`
 }
 type PreviewRow struct {
 	Line    int         `json:"line"`
@@ -158,7 +163,7 @@ func normalize(in Input) (Transaction, error) {
 		t.Type = "income"
 	}
 	if t.Type != "expense" && t.Type != "income" {
-		return t, problem("invalid", "当前只支持收入或支出；转账、退款、还款须等待相应功能")
+		return t, problem("invalid", "普通记账仅支持收入或支出；退款请从原消费详情登记")
 	}
 	if t.Currency != "CNY" {
 		return t, problem("invalid", "当前仅支持明确标注 CNY 的人民币账单")
