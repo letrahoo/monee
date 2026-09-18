@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1.7
+FROM eclipse-temurin:17-jdk-jammy AS build
+RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY gradlew gradle.properties settings.gradle.kts build.gradle.kts ./
+COPY gradle ./gradle
+COPY assets ./assets
+COPY shared ./shared
+COPY webApp ./webApp
+RUN --mount=type=cache,target=/root/.gradle \
+    chmod +x gradlew && ./gradlew --no-daemon :webApp:wasmJsBrowserDistribution
+
+FROM nginxinc/nginx-unprivileged:1.29-alpine
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /src/webApp/build/dist/wasmJs/productionExecutable/ /usr/share/nginx/html/
+EXPOSE 8080

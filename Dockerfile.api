@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1.7
+FROM golang:1.26.8-bookworm AS build
+WORKDIR /src
+COPY server/go.mod server/go.sum ./server/
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go -C server mod download
+COPY server ./server
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" \
+    go -C server build -trimpath -ldflags='-s -w' -o /out/monee-server ./cmd/monee && \
+    CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" \
+    go -C server build -trimpath -ldflags='-s -w' -o /out/monee-backup ./cmd/database-backup
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build --chown=65532:65532 /out/monee-server /monee-server
+COPY --from=build --chown=65532:65532 /out/monee-backup /monee-backup
+USER 65532:65532
+EXPOSE 4173
+ENTRYPOINT ["/monee-server"]
+CMD ["-listen", "0.0.0.0:4173", "-data-dir", "/data", "-auth-config", "/data/auth.json"]

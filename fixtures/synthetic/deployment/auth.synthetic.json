@@ -1,0 +1,8 @@
+{
+  "github": {
+    "clientId": "synthetic-compose-client",
+    "clientSecret": "synthetic-compose-secret",
+    "appType": "oauth-app"
+  },
+  "superadmins": []
+}

@@ -10,6 +10,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -29,10 +30,12 @@ type Service struct {
 	mu            sync.Mutex
 	flows         map[string]*flow
 	resolveGitHub func(context.Context, string) (string, string, error)
+	secureCookies bool
 }
 
 func NewService(store *Store, providers map[string]Provider, baseURL string) *Service {
-	return &Service{store: store, providers: providers, baseURL: baseURL, flows: map[string]*flow{}, resolveGitHub: ResolveGitHub}
+	u, _ := url.Parse(baseURL)
+	return &Service{store: store, providers: providers, baseURL: baseURL, flows: map[string]*flow{}, resolveGitHub: ResolveGitHub, secureCookies: u != nil && u.Scheme == "https"}
 }
 func jsonResponse(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -229,7 +232,7 @@ func (s *Service) begin(w http.ResponseWriter, r *http.Request) {
 	found.Binding = randomToken()
 	f := *found
 	s.mu.Unlock()
-	http.SetCookie(w, &http.Cookie{Name: cookieName(f.State), Value: f.Binding, Path: "/auth/callback/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: 600})
+	http.SetCookie(w, &http.Cookie{Name: cookieName(f.State), Value: f.Binding, Path: "/auth/callback/", HttpOnly: true, Secure: s.secureCookies, SameSite: http.SameSiteLaxMode, MaxAge: 600})
 	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, s.providers[f.Provider].AuthorizationURL(f.State, f.Nonce, f.Verifier), http.StatusSeeOther)
 }
@@ -262,7 +265,7 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 	found.Status = "exchanging"
 	f := *found
 	s.mu.Unlock()
-	http.SetCookie(w, &http.Cookie{Name: cookieName(state), Value: "", Path: "/auth/callback/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: cookieName(state), Value: "", Path: "/auth/callback/", HttpOnly: true, Secure: s.secureCookies, SameSite: http.SameSiteLaxMode, MaxAge: -1})
 	if r.URL.Query().Get("error") != "" {
 		s.failFlow(f.ID)
 		s.redirectResult(w, r, "cancelled")
@@ -342,8 +345,8 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	delete(s.flows, f.ID)
 	s.mu.Unlock()
-	// Loopback HTTP only. Keep credentials HttpOnly; JSON writes additionally require CSRF proof.
-	http.SetCookie(w, &http.Cookie{Name: s.sessionCookie(), Value: token, Path: "/api/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: int(sessionLifetime.Seconds())})
+	// Keep credentials HttpOnly; production HTTPS additionally requires Secure cookies.
+	http.SetCookie(w, &http.Cookie{Name: s.sessionCookie(), Value: token, Path: "/api/", HttpOnly: true, Secure: s.secureCookies, SameSite: http.SameSiteLaxMode, MaxAge: int(sessionLifetime.Seconds())})
 	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

@@ -69,6 +69,7 @@ Web 需要支持 WebAssembly GC 的现代浏览器。完整中文字体随应用
 
 - [开发交接](docs/HANDOFF.md)：方案、产品原则、完成状态、验证缺口和下一步。
 - [异地开发指南](docs/operations/development.md)：获取代码、无凭据测试、独立账本与配置恢复边界。
+- [Compose 生产部署](docs/operations/compose-deployment.md)：GitHub CI 镜像、服务端/Web 编排、反向代理、验证与回滚。
 - [登录与访问白名单](docs/architecture/login-and-access.md)：OAuth、权限模型和实际验收。
 - [品牌说明](docs/brand.md)：Logo 原图、Slogan 与使用约定。
 - [Logo 原图](assets/brand/logo.png)：1254 × 1254 PNG。
