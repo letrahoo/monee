@@ -3,6 +3,7 @@ package ledger
 import (
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -315,5 +316,100 @@ func TestRefundSeparateConnectionsCannotOverRefund(t *testing.T) {
 	}
 	if summary, err := first.Refunds(original.ID); err != nil || summary.RefundedMinor != "6000" {
 		t.Fatal("over-refund", err, summary)
+	}
+}
+
+func TestRefundLateWriteFailureRollsBackEntireOperation(t *testing.T) {
+	// Faults live only in a temporary test database, never a production entry point.
+	for name, trigger := range map[string]string{
+		"original version": "BEFORE UPDATE OF version ON transactions WHEN OLD.kind='expense'",
+		"link audit":       "BEFORE INSERT ON change_log WHEN NEW.operation='refund_linked'",
+		"replay response":  "BEFORE INSERT ON idempotency",
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := testStore(t)
+			original := refundExpense(t, s)
+			before := dashboard(t, s)
+			counts := map[string]int{}
+			for _, table := range []string{"transactions", "postings", "accounts", "change_log", "idempotency"} {
+				counts[table] = count(t, s, table)
+			}
+			if _, err := s.db.Exec("CREATE TRIGGER refund_test_failure " + trigger + " BEGIN SELECT RAISE(ABORT,'synthetic late failure'); END"); err != nil {
+				t.Fatal(err)
+			}
+			in, key := refundInput(), "refund-atomic-retry-001"
+			if _, err := s.CreateRefund(original.ID, in, key); err == nil || !strings.Contains(err.Error(), "synthetic late failure") {
+				t.Fatal("expected injected failure", err)
+			}
+			for table, want := range counts {
+				if got := count(t, s, table); got != want {
+					t.Fatalf("%s leaked rows: got %d want %d", table, got, want)
+				}
+			}
+			if after := dashboard(t, s); !reflect.DeepEqual(before, after) {
+				t.Fatalf("failed refund changed ledger: before=%+v after=%+v", before, after)
+			}
+			summary, err := s.Refunds(original.ID)
+			if err != nil || summary.Original != original || len(summary.Refunds) != 0 || summary.RemainingMinor != "10000" {
+				t.Fatal("failed refund changed original", err, summary)
+			}
+			if _, err = s.db.Exec("DROP TRIGGER refund_test_failure"); err != nil {
+				t.Fatal(err)
+			}
+			// The original key/version must remain usable after rollback.
+			refund, err := s.CreateRefund(original.ID, in, key)
+			if err != nil {
+				t.Fatal("retry after rollback", err)
+			}
+			if replay, err := s.CreateRefund(original.ID, in, key); err != nil || replay != refund {
+				t.Fatal("retry duplicated successful recovery", err, replay)
+			}
+			if after := dashboard(t, s); after.Version != before.Version+1 || after.RefundMinor != "3000" || after.TotalCount != before.TotalCount+1 {
+				t.Fatal("recovery not exactly once", after)
+			}
+		})
+	}
+}
+
+func TestRefundSameKeyConcurrentRetryWritesOnce(t *testing.T) {
+	s := testStore(t)
+	original := refundExpense(t, s)
+	before := dashboard(t, s)
+	const attempts = 8
+	start := make(chan struct{})
+	type result struct {
+		refund Transaction
+		err    error
+	}
+	results := make(chan result, attempts)
+	for i := 0; i < attempts; i++ {
+		go func() {
+			<-start
+			r, err := s.CreateRefund(original.ID, refundInput(), "refund-same-key-001")
+			results <- result{r, err}
+		}()
+	}
+	close(start)
+	var first Transaction
+	for i := 0; i < attempts; i++ {
+		r := <-results
+		if r.err != nil {
+			t.Fatal(r.err)
+		}
+		if i == 0 {
+			first = r.refund
+		} else if r.refund != first {
+			t.Fatal("same request returned different refunds")
+		}
+	}
+	summary, err := s.Refunds(original.ID)
+	if err != nil || summary.Original.Version != original.Version+1 || len(summary.Refunds) != 1 || summary.RefundedMinor != "3000" {
+		t.Fatal("duplicate link or original version", err, summary)
+	}
+	if after := dashboard(t, s); after.Version != before.Version+1 || after.TotalCount != before.TotalCount+1 || after.ExpenseMinor != "7000" {
+		t.Fatal("duplicate accounting effect", after)
+	}
+	if count(t, s, "postings") != 4 || count(t, s, "idempotency") != 2 {
+		t.Fatal("duplicate postings or replay record")
 	}
 }
