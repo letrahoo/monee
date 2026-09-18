@@ -48,3 +48,27 @@ func TestSnapshotRestoreWALAndTampering(t *testing.T) {
 		t.Fatal("accepted corrupted backup")
 	}
 }
+
+func TestRestoreRejectsFutureSchemaWithoutCreatingTarget(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "future.db")
+	db, err := sql.Open("sqlite", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec("CREATE TABLE items(id TEXT); PRAGMA user_version=4"); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	bundle := filepath.Join(root, "backup")
+	if err := Snapshot(source, bundle); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "restored.db")
+	if err := Restore(bundle, target); err == nil {
+		t.Fatal("restored a future schema")
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatal("failed restore left a target", err)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/mail"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/letrahoo/monee/server/internal/storage"
 	_ "modernc.org/sqlite"
 )
 
@@ -117,7 +119,7 @@ func (s *Store) initialize(seeds []Selector) error {
 	if err = tx.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version > 2 {
+	if version > storage.SchemaVersion {
 		return errors.New("auth database requires a newer application")
 	}
 	var hasAuth int
@@ -132,7 +134,9 @@ func (s *Store) initialize(seeds []Selector) error {
 	if err = migrateAccounts(tx); err != nil {
 		return err
 	}
-	if _, err = tx.Exec("PRAGMA user_version=2"); err != nil {
+	// The ledger owns newer application schema migrations. authSchema itself
+	// sets version 1 on first initialization, so preserve the original version.
+	if _, err = tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", max(version, 2))); err != nil {
 		return err
 	}
 	var initialized int

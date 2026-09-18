@@ -291,7 +291,7 @@ func TestFutureSchemaRejected(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	s.db.Exec("PRAGMA user_version=3")
+	s.db.Exec("PRAGMA user_version=4")
 	s.Close()
 	if reopened, e := Open(path); e == nil {
 		reopened.Close()

@@ -56,8 +56,13 @@ func Open(path string) (*Store, error) {
 	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return fail(err)
 	}
-	if version > 2 {
+	if version > storage.SchemaVersion {
 		return fail(problem("future_schema", "数据库来自更新版本，拒绝以旧程序写入"))
+	}
+	if version > 0 && version < storage.SchemaVersion {
+		if err = storage.Snapshot(path, path+".backup-before-v3-"+newID()); err != nil {
+			return fail(err)
+		}
 	}
 	if version == 0 {
 		tx, e := db.Begin()
@@ -88,6 +93,11 @@ func Open(path string) (*Store, error) {
 		}
 		if e = tx.Commit(); e != nil {
 			return fail(e)
+		}
+	}
+	if version < 3 {
+		if err = migrateRefundSchema(db); err != nil {
+			return fail(err)
 		}
 	}
 	if err = db.QueryRow("SELECT id,device_id FROM ledgers ORDER BY created_at,id LIMIT 1").Scan(&s.ledgerID, &s.deviceID); err != nil {

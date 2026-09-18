@@ -16,6 +16,7 @@ import (
 	"github.com/letrahoo/monee/server/internal/auth"
 	"github.com/letrahoo/monee/server/internal/ledger"
 	"github.com/letrahoo/monee/server/internal/redaction"
+	"github.com/letrahoo/monee/server/internal/storage"
 )
 
 type API struct {
@@ -86,7 +87,7 @@ func (a API) Handler() http.Handler {
 	a.registerImportUndo(mux)
 	a.registerReviewQueue(mux)
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"status": "ok", "apiVersion": 1, "schemaVersion": 2, "instanceId": a.InstanceID, "serviceProtocol": a.ServiceProtocol})
+		writeJSON(w, 200, map[string]any{"status": "ok", "apiVersion": 1, "schemaVersion": storage.SchemaVersion, "instanceId": a.InstanceID, "serviceProtocol": a.ServiceProtocol})
 	})
 	if a.Auth != nil {
 		a.Auth.Register(mux)
