@@ -69,7 +69,7 @@ func TestRefundMigrationPreservesDataAndBackup(t *testing.T) {
 	if count(t, s, "source_records") != sources || count(t, s, "change_log") != changes || count(t, s, "postings") != 6 {
 		t.Fatal("migration changed provenance, audit or postings")
 	}
-	if v, err := storage.Check(path); err != nil || v != 3 {
+	if v, err := storage.Check(path); err != nil || v != storage.SchemaVersion {
 		t.Fatal("schema or integrity", v, err)
 	}
 	var fk int
@@ -83,10 +83,10 @@ func TestRefundMigrationPreservesDataAndBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.Close()
-	if v, err := storage.Check(path); err != nil || v != 3 {
+	if v, err := storage.Check(path); err != nil || v != storage.SchemaVersion {
 		t.Fatal("identity downgraded schema", v, err)
 	}
-	backups, err := filepath.Glob(path + ".backup-before-v3-*")
+	backups, err := filepath.Glob(fmt.Sprintf("%s.backup-before-v%d-*", path, storage.SchemaVersion))
 	if err != nil || len(backups) != 1 {
 		t.Fatal("missing upgrade backup", backups, err)
 	}
@@ -112,7 +112,7 @@ func TestRefundMigrationPreservesDataAndBackup(t *testing.T) {
 		t.Fatal("restart", err)
 	}
 	s.Close()
-	backups, _ = filepath.Glob(path + ".backup-before-v3-*")
+	backups, _ = filepath.Glob(fmt.Sprintf("%s.backup-before-v%d-*", path, storage.SchemaVersion))
 	if len(backups) != 1 {
 		t.Fatal("restart made redundant backup")
 	}
@@ -154,7 +154,7 @@ func TestRefundUpgradeStopsWhenBackupValidationFails(t *testing.T) {
 	if version != 2 || newColumns != 0 || count(t, s, "postings") != 1 {
 		t.Fatal("failed backup modified the source database", version, newColumns)
 	}
-	backups, _ := filepath.Glob(path + ".backup-before-v3-*")
+	backups, _ := filepath.Glob(fmt.Sprintf("%s.backup-before-v%d-*", path, storage.SchemaVersion))
 	if len(backups) != 0 {
 		t.Fatal("left an unverified backup")
 	}
@@ -167,7 +167,7 @@ func TestRefundSchemaRequiresSameLedgerTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Copy only synthetic test fields to isolate database link constraints.
-	insert := `INSERT INTO transactions SELECT ?,ledger_id,occurred_on,'refund',1,currency,merchant,category,source,account,external_id,note,NULL,fingerprint,similarity_key,1,device_id,created_at,updated_at,NULL,created_by,? FROM transactions WHERE id=?`
+	insert := `INSERT INTO transactions SELECT ?,ledger_id,occurred_on,'refund',1,currency,merchant,category,source,account,external_id,note,NULL,fingerprint,similarity_key,1,device_id,created_at,updated_at,NULL,created_by,?,NULL FROM transactions WHERE id=?`
 	for _, target := range []any{nil, "missing", "self"} {
 		if _, err := s.db.Exec(insert, "self", target, original.ID); err == nil {
 			t.Fatalf("accepted invalid refund target %v", target)
