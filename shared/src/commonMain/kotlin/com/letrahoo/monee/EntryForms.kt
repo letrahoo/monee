@@ -182,9 +182,9 @@ internal fun AnnotationEditor(item:LedgerTransaction,working:Boolean,onSave:(Str
     var editing by remember(item.id,item.version){mutableStateOf(false)}
     var category by remember(item.id,item.version){mutableStateOf(item.category)}
     var note by remember(item.id,item.version){mutableStateOf(item.note)}
-    if(!editing) TextButton(onClick={editing=true},enabled=!working){Text("修改分类与备注")}
+    if(!editing) TextButton(onClick={editing=true},enabled=!working){Text(if(item.type=="transfer")"修改备注"else"修改分类与备注")}
     else Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(category,{category=it},label={Text("分类")},enabled=!working,singleLine=true,modifier=Modifier.fillMaxWidth())
+        if(item.type!="transfer")OutlinedTextField(category,{category=it},label={Text("分类")},enabled=!working,singleLine=true,modifier=Modifier.fillMaxWidth())
         OutlinedTextField(note,{note=it},label={Text("备注")},enabled=!working,modifier=Modifier.fillMaxWidth())
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             Button(onClick={onSave(category,note)},enabled=!working&&(category!=item.category||note!=item.note)){Text("保存修改")}
