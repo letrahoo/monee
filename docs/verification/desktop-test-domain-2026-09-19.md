@@ -2,6 +2,8 @@
 
 日期：2026-09-19。基于退款分支 `83477e5` 的连接前置修复；提交号见 Git 历史。M-08 / PR #13 保持待验收，不作为退款或 MVP 已完成的证据。
 
+最新结果（优先于下方历史阻塞）：`9d5e63f` Mac 包已在隔离候选完成测试域名 Google OAuth→桌面 proof 领取→Bearer 账本读写；退款、跨月、运行中丢响应恢复和进程重启自动恢复会话/已保存数据通过。用户批准的系统代理精确域名例外后，浏览器策略阻塞未再出现；Web Google/GitHub 正常登录和双端角色切换/移除实测完成，新增测试成员已清理。剩余 Mac 更正输入操作工具问题和退出态验证见[退款验证](refund-linking-2026-09-19.md)，不再等待网关授权或4278回调。
+
 ## 实现
 
 - 显式 `MONEE_SERVER_URL` HTTPS 模式与可选公开 CA 文件；错误不回退本机。默认本机发现/进程身份检查不变。
@@ -18,6 +20,8 @@
 6. 独立审查无剩余已确认 P1/P2；其打包模块和 HTTPS→HTTPS 重定向测试意见已修复并重跑。未覆盖的代理选择分支小测试为非阻塞建议。
 
 ## 阻塞与未完成
+
+后续更新（用户明确批准后）：已保留网关配置备份，应用仅 Monee Basic 过滤/Bearer 保留变更，校验和 reload 成功。HTTPS 与 Tailnet health 200；HTTP 308；`auth/me` 匿名或无效 Bearer 返回 user=null；受保护 dashboard 均 401；resume/Hermes 匿名仍 401。配置未切候选上游，仍为原 schema 2 服务。有效 OAuth 会话领取与 Bearer 访问仍未实测。按用户要求再次复现浏览器，仍在页面访问前返回同一管理员策略核验错误；不是网页弹窗，也不能断言是用户漏点授权。以下审批拒绝记录为已解除的历史状态。
 
 - 现有 Caddy Monee 两入口仍 `header_up -Authorization`，会删除 Mac Bearer。拟只删除遗留 Basic 并保留 Bearer，由 Go 验证会话。候选通过配置检查，但持久写入与 reload 被自动审批拒绝。已请求用户明确授权，未执行，不更改其他站点。
 - 浏览器正式接口再次报 `The admin-enforced policy could not be verified, so access was not granted`。这是访问页面前的策略核验失败，不是 Monee OAuth 错误；当前证据不足以断言账号/组织策略根因。未改策略、未走间接浏览器控制。
