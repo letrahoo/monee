@@ -1,7 +1,7 @@
 package com.letrahoo.monee.data
 
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.java.Java
 import io.ktor.client.plugins.HttpTimeout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.swing.Swing
@@ -11,7 +11,34 @@ import java.awt.Frame
 import java.nio.file.Files
 import java.nio.file.Path
 
-internal actual fun platformClient() = HttpClient(CIO) {
+internal actual fun platformClient() = desktopHttpClient(DesktopRemoteConfiguration.current)
+
+internal fun desktopHttpClient(configuration: Result<DesktopRemote?>) = HttpClient(Java) {
+    // A redirect must not move desktop credentials/proofs to a different origin.
+    followRedirects = false
+    engine {
+        config {
+            followRedirects(java.net.http.HttpClient.Redirect.NEVER)
+            // The explicitly selected private test origin must use its LAN/Tailnet route,
+            // not the desktop's general web proxy. Do not change the system proxy.
+            configuration.getOrNull()?.let { remote ->
+                val fallback = java.net.ProxySelector.getDefault()
+                proxy(object : java.net.ProxySelector() {
+                    override fun select(uri: java.net.URI): List<java.net.Proxy> =
+                        if ("${uri.scheme}://${uri.rawAuthority}" == remote.origin) listOf(java.net.Proxy.NO_PROXY)
+                        else fallback?.select(uri) ?: listOf(java.net.Proxy.NO_PROXY)
+                    override fun connectFailed(uri: java.net.URI, address: java.net.SocketAddress, failure: java.io.IOException) {
+                        fallback?.connectFailed(uri, address, failure)
+                    }
+                })
+            }
+            val trust = if (configuration.isFailure) DesktopRemoteConfiguration.rejectInvalidConfiguration
+                else configuration.getOrNull()?.trustManager
+            if (trust != null) sslContext(javax.net.ssl.SSLContext.getInstance("TLS").apply {
+                init(null, arrayOf(trust), null)
+            })
+        }
+    }
     install(HttpTimeout) { requestTimeoutMillis = 20_000; connectTimeoutMillis = 5_000 }
 }
 
@@ -22,7 +49,9 @@ internal fun desktopDataDirectory():Path = System.getenv("MONEE_DATA_DIR")?.let 
     }
 
 internal actual suspend fun discoverConnection(client: HttpClient): Connection =
-    DesktopService.connection(desktopDataDirectory())
+    desktopConnection(client, DesktopRemoteConfiguration.current.getOrThrow()) {
+        DesktopService.connection(desktopDataDirectory())
+    }
 
 actual suspend fun chooseCSV(): PickedCSV? {
     val selected = withContext(Dispatchers.Swing) {

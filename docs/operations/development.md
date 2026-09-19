@@ -83,6 +83,24 @@ export MONEE_DATA_DIR="$HOME/.monee-development"
 
 Google Web/Mac 当前共用上述服务端回调。未来移动端需单独规划 Android 包名/签名、iOS Bundle ID 和原生登录验证；手机的 127.0.0.1 不指向电脑。远程 HTTPS、移动客户端与云端部署均未实现，不能通过修改监听地址直接开放现有服务。
 
+## Mac 显式 HTTPS 测试连接（2026-09-19）
+
+默认启动仍使用本机服务。需要与 Web 共用现有测试域名时，先构建 Mac 分发包，再启动：
+
+```sh
+MONEE_SERVER_URL=https://monee.test.letra.xin \
+MONEE_SERVER_CA_FILE=/absolute/path/to/trusted-public-ca.crt \
+bash scripts/run-mac-test.sh
+```
+
+脚本默认使用单独的 `Monee-Test` 数据/钥匙串作用域；也可显式设置 `MONEE_DATA_DIR`。仅使用管理员提供并核对指纹的公开 CA 证书，不能使用私钥。公开受信任证书可不设 CA 文件；私有 CA 只加载到当前客户端，不更改系统证书库。上文“远程 HTTPS 未实现”为历史限制，本节是新的显式测试模式，不代表远程同步或生产服务已发布。
+
+远程模式拒绝 HTTP、带路径/账号/查询的地址和无效 CA，不在错误时回退本机服务。当前仅支持 DNS 名称/IPv4，IPv6 地址不接受。测试 origin 精确匹配时不走系统 Web 代理，以访问已有 LAN/Tailnet 路由；其他地址代理选择不变。证书链、有效期及主机名校验保持启用，API 不跟随重定向。测试 Mac 不启动内置 Go 服务，不在本机另放 OAuth 密钥，使用服务端已有域名回调完成登录。
+
+网关必须把 Mac `Authorization: Bearer` 交给 Monee 服务验证；清理历史外层密码时只能移除遗留 Basic 头，不能删除全部 Authorization。网关修改需遵循实际审批；本次候选尚未应用。域名能显示登录页不代表完整登录/记账已通过。功能验收必须切到经授权的独立候选账本，不能试写原服务真实数据。
+
+可显式运行只读真实连接诊断：在上述环境变量之外设置 `MONEE_TEST_REMOTE=1`，执行 `./gradlew :shared:jvmTest`。此标记强制重跑测试，不以缓存代替当前连接证据。普通 CI 不连接私有测试域名。
+
 ## 私有资料与恢复边界
 
 | 资料 | 当前存放/用途 | 换机时怎么办 |
