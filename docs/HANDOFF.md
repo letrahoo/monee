@@ -6,7 +6,7 @@
 
 M-08 已通过双端隔离合成账本全部必需验收、独立 Agent/GitHub 审查，最终提交 `6b79b3b` 六项 CI 全成功；PR #13 已合并主干 `72f2a37`，Notion M-08 已完成。证据见[退款验证](verification/refund-linking-2026-09-19.md)，不是生产部署或整个批次 MVP 完成。
 
-已从该主干领取 Notion M-09，分支 `feat/internal-transfers`。[实施计划](plans/internal-transfers.md)限定明确双方的 CNY 本人资金转移、不计收支、缺失侧待核实。当前仅实现纯输入校验与双侧相抵的资金分录构造/测试，尚无数据库迁移、写入API或UI。下一步完成安全迁移/正式落账/统计/编辑保护，再接共享UI，完整检查及双端实测前不得合并或标记完成；不领取M-10。
+已从该主干领取 Notion M-09，分支 `feat/internal-transfers`、草稿 PR #14。[实施计划](plans/internal-transfers.md)限定明确双方的 CNY 本人资金转移、不计收支、缺失侧待核实。现已实现 schema4 安全迁移/正式双资金分录、统计排除、两侧搜索、编辑保护、权限/幂等 API 及共享 UI。全量 Go race/vet、共享测试、Web/Mac 构建通过；独立后端与共享客户端审查无 P1/P2。当前仍未完成双端真实转账验收，不合并、不领取M-10。见[验证与剩余项](verification/internal-transfers-2026-09-19.md)。
 
 测试域名两处路由已恢复原4173/schema2，保留Bearer修复及取消的Monee外层密码；原账本未写入。候选合成卷保留但不对域名提供服务，Mac验收包已退出。工具输入阻塞已解除。重启后旧临时JDK被清理，现同版本官方Temurin17已校验后放入忽略的`.local/toolchains/`，Gradle仍用`.local/gradle`；不提交本机工具/数据。以下M-08历史等待/阻塞以本节为准。
 

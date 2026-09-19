@@ -76,6 +76,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
     // Keep uncertain writes above the polling/list UI: version refresh or closing
     // the panel must not silently generate a second idempotency key.
     var refundSubmission by remember { mutableStateOf(api.pendingRefund(ledger.id)) }
+    var transferSubmission by remember { mutableStateOf(api.pendingTransfer(ledger.id)) }
 
     LaunchedEffect(month, query, page, refresh) {
         loading = true
@@ -134,6 +135,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                     Text(ledger.name,modifier=Modifier.padding(end=20.dp,top=6.dp),fontSize=24.sp,fontWeight=FontWeight.Bold,color=Ink)
                     Button(onClick={panel=if(panel=="import")""else"import";actionError=null},enabled=ledger.role!="viewer"&&dashboard!=null&&!working&&connectionError==null) { Text("导入账单") }
                     OutlinedButton(onClick={panel=if(panel=="manual")""else"manual";if(input.date.isEmpty())input=input.copy(date=dashboard?.today.orEmpty());actionError=null},enabled=ledger.role!="viewer"&&dashboard!=null&&!working&&connectionError==null) { Text("记一笔") }
+                    OutlinedButton(onClick={panel=if(panel=="transfer")""else"transfer";actionError=null},enabled=ledger.role!="viewer"&&dashboard!=null&&!working&&connectionError==null){Text("本人转账")}
                     TextButton(onClick={runAction { importHistory=api.importHistory(ledger.id,1);panel="history" }},enabled=!working){Text("导入记录")}
                     TextButton(onClick={runAction { reviewQueue=api.reviewQueue(ledger.id,1,reviewFormat);panel="review" }},enabled=!working){Text("待核实")}
                     TextButton(onClick={if(panel=="review")runAction {reviewQueue=api.reviewQueue(ledger.id,reviewQueue?.page ?: 1,reviewFormat)}else refresh++},enabled=!working) { Text("刷新") }
@@ -141,6 +143,19 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                 if(ledger.role=="viewer")Text("只读账本",color=Muted)
                 notice?.let { Text(it,color=Pine) }
                 actionError?.let { Text(it,color=MaterialTheme.colors.error) }
+                if(transferSubmission!=null&&panel!="transfer")TextButton(onClick={panel="transfer"},enabled=!working){Text("继续确认上次转账")}
+                if(panel=="transfer")TransferPanel(dashboard?.today.orEmpty(),ledger.role=="viewer",working,transferSubmission,
+                    onSubmit={change->runAction {
+                        val submission=api.prepareTransfer(ledger.id,change,::requestKey).also { transferSubmission=it }
+                        try {
+                            val result=api.createTransfer(ledger.id,submission)
+                            transferSubmission=null
+                            saved(result.date.take(7),"转账已保存，收支不变")
+                        } catch(e:LedgerException) {
+                            transferSubmission=api.pendingTransfer(ledger.id)
+                            throw e
+                        }
+                    }},onClose={panel=""})
                 if(refundSubmission!=null&&panel!="refund")TextButton(onClick={runAction {
                     refundSummary=api.refunds(ledger.id,refundSubmission!!.originalId);panel="refund"
                 }},enabled=!working){Text("继续确认上次退款")}
@@ -269,7 +284,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                     Column(verticalArrangement=Arrangement.spacedBy(14.dp)) {
                         Text("账单明细 · ${data.filteredCount} 笔",fontWeight=FontWeight.Bold,fontSize=21.sp)
                         OutlinedTextField(query,onValueChange={query=it;page=1},modifier=Modifier.fillMaxWidth(),singleLine=true,
-                            label={Text("搜索商户、分类或来源")},shape=RoundedCornerShape(12.dp),
+                            label={Text("搜索商户、分类、来源或账户")},shape=RoundedCornerShape(12.dp),
                             trailingIcon={if(query.isNotEmpty())TextButton(onClick={query="";page=1}){Text("清除")}})
                         Card(shape=RoundedCornerShape(16.dp),elevation=0.dp,modifier=Modifier.fillMaxWidth()) {
                             Column {
@@ -279,16 +294,17 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                                         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                                             if(!compact) Text(item.date,Modifier.width(100.dp),fontSize=13.sp,color=Muted)
                                             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(5.dp)) {
-                                                Text(item.merchant,fontWeight=FontWeight.Medium,color=Ink,maxLines=1,overflow=TextOverflow.Ellipsis)
+                                                Text(if(item.type=="transfer")transactionAccountLabel(item)else item.merchant,fontWeight=FontWeight.Medium,color=Ink,maxLines=1,overflow=TextOverflow.Ellipsis)
                                                 Text("${item.category} · ${item.source}${if(compact)" · ${item.date}"else""}",fontSize=12.sp,color=Muted)
                                             }
-                                            Text(formatTransactionMoney(item.amountMinor.toLong()),color=if(item.type=="income")Pine else Ink,fontWeight=FontWeight.SemiBold)
+                                            Text(transactionAmountLabel(item),color=if(item.type=="income")Pine else Ink,fontWeight=FontWeight.SemiBold)
                                         }
                                     }
                                     // Inline details avoid the Compose Wasm popup accessibility issue CMP-10623.
                                     if(selectedID==item.id) Column(Modifier.fillMaxWidth().background(Color(0xFFF0F4EC)).padding(20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                                         Text("账单详情 · ${item.merchant}",color=Pine,fontWeight=FontWeight.Bold)
-                                        Text("日期：${item.date}\n来源：${item.source}\n资金账户：${item.account}（待核实）")
+                                        Text("日期：${item.date}\n来源：${item.source}\n${transactionAccountLabel(item)}")
+                                        if(item.type=="transfer")Text("本人资金转移，不计收入或支出；账户余额尚未核实。",color=Muted)
                                         if(item.externalId.isNotEmpty()&&!item.externalId.contains("-native-v1:"))Text("来源流水号：${item.externalId}")
                                         if(item.note.isNotEmpty())Text("备注：${item.note}")
                                         if(item.type=="refund")Text("消费退款（不计入收入）",color=Pine)
@@ -305,9 +321,9 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                                             }},enabled=!working){Text("${link.filename} · 第 ${link.line} 行")} }
                                         }
                                         if(ledger.role!="viewer") AnnotationEditor(item,working,onSave={category,note->runAction {
-                                            api.annotate(ledger.id,item.id,AnnotationInput(item.version,category,note));notice="分类与备注已保存";refresh++;revisionID=""
+                                            api.annotate(ledger.id,item.id,AnnotationInput(item.version,category,note));notice=if(item.type=="transfer")"备注已保存"else"分类与备注已保存";refresh++;revisionID=""
                                         }})
-                                        if(ledger.role!="viewer"&&item.type!="refund") CorrectionEditor(item,working,
+                                        if(ledger.role!="viewer"&&item.type in listOf("income","expense")) CorrectionEditor(item,working,
                                             onPreview={change,accept->runAction { accept(api.previewCorrection(ledger.id,item.id,change)) }},
                                             onConfirm={change->runAction { api.correct(ledger.id,item.id,change);notice="金额与收支性质已更正";refresh++;revisionID="" }})
                                         TextButton(onClick={runAction { revisions=api.annotationHistory(ledger.id,item.id);corrections=api.correctionHistory(ledger.id,item.id);revisionID=item.id }},enabled=!working){Text("修改记录")}

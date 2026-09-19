@@ -1,9 +1,63 @@
 package ledger
 
 import (
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 )
+
+func (s *Store) CreateTransfer(in TransferInput, key string) (Transaction, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out Transaction
+	n, err := normalizeTransfer(in)
+	if err != nil {
+		return out, err
+	}
+	if len(key) < 16 || len(key) > 128 || strings.ContainsAny(key, "\x00\r\n") {
+		return out, problem("invalid", "缺少有效的幂等请求标识")
+	}
+	requestHash := hash(encode([]any{"transfer-v1", n}))
+	tx, err := s.db.Begin()
+	if err != nil {
+		return out, err
+	}
+	defer tx.Rollback()
+	// Permission precedes replay: downgrading/removing a member revokes retries.
+	if err = s.authorize(tx, true); err != nil {
+		return out, err
+	}
+	var previousHash, previousJSON string
+	err = tx.QueryRow("SELECT request_hash,response_json FROM idempotency WHERE ledger_id=? AND key=?", s.ledgerID, key).Scan(&previousHash, &previousJSON)
+	if err == nil {
+		if previousHash != requestHash {
+			return out, problem("conflict", "该请求标识已用于另一笔数据")
+		}
+		err = json.Unmarshal([]byte(previousJSON), &out)
+		return out, err
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return out, err
+	}
+	out = Transaction{ID: newID(), Version: 1, Type: "transfer", Date: n.Date, Currency: n.Currency,
+		AmountMinor: strconv.FormatInt(n.AmountMinor, 10), Account: n.FromAccount, ToAccount: n.ToAccount,
+		Merchant: "本人账户转账", Category: "本人转账", Source: "手动转账", Note: n.Note}
+	if err = s.insert(tx, out); err != nil {
+		return Transaction{}, err
+	}
+	if _, err = tx.Exec("UPDATE ledgers SET version=version+1 WHERE id=?", s.ledgerID); err != nil {
+		return Transaction{}, err
+	}
+	if _, err = tx.Exec("INSERT INTO idempotency VALUES(?,?,?,?,?)", s.ledgerID, key, requestHash, encode(out), now()); err != nil {
+		return Transaction{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Transaction{}, err
+	}
+	return out, nil
+}
 
 // TransferInput records an explicitly confirmed movement between two of the
 // ledger owner's funding accounts. It is not an instruction to move real money.

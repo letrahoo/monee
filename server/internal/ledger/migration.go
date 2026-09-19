@@ -11,7 +11,18 @@ import (
 //go:embed migrations/003.sql
 var schema3 string
 
+//go:embed migrations/004.sql
+var schema4 string
+
 func migrateRefundSchema(db *sql.DB) (result error) {
+	return migrateTransactionSchema(db, schema3)
+}
+
+func migrateTransferSchema(db *sql.DB) error {
+	return migrateTransactionSchema(db, schema4)
+}
+
+func migrateTransactionSchema(db *sql.DB, ddl string) (result error) {
 	ctx := context.Background()
 	conn, err := db.Conn(ctx)
 	if err != nil {
@@ -32,7 +43,7 @@ func migrateRefundSchema(db *sql.DB) (result error) {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.Exec(schema3); err != nil {
+	if _, err = tx.Exec(ddl); err != nil {
 		return err
 	}
 	rows, err := tx.Query("PRAGMA foreign_key_check")
@@ -46,7 +57,7 @@ func migrateRefundSchema(db *sql.DB) (result error) {
 		return err
 	}
 	if bad {
-		return fmt.Errorf("refund schema migration failed foreign key validation")
+		return fmt.Errorf("transaction schema migration failed foreign key validation")
 	}
 	return tx.Commit()
 }

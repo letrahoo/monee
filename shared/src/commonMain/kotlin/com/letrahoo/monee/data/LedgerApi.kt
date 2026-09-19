@@ -36,6 +36,29 @@ class LedgerApi {
     private var csrf: String = ""
     private var currentUserId:String?=null
     private val refundRequests=RefundRequests()
+    private val transferRequests=TransferRequests()
+
+    private fun transferScope(ledgerId:String):TransferScope? =
+        sessionOrigin?.let { origin->currentUserId?.let { user->TransferScope(origin,user,ledgerId) } }
+    fun pendingTransfer(ledgerId:String):TransferSubmission?=transferScope(ledgerId)?.let { transferRequests.get(it) }
+    suspend fun prepareTransfer(ledgerId:String,input:TransferInput,newKey:()->String):TransferSubmission {
+        destination()
+        val scope=transferScope(ledgerId) ?: throw LedgerException("请先刷新登录状态","unauthenticated")
+        return transferRequests.prepare(scope,input,newKey)
+    }
+    suspend fun createTransfer(ledgerId:String,submission:TransferSubmission):LedgerTransaction {
+        destination()
+        val scope=transferScope(ledgerId) ?: throw LedgerException("请先刷新登录状态","unauthenticated")
+        require(transferRequests.get(scope)==submission){"转账请求不属于当前账号或账本"}
+        try {
+            val result=apiJson.decodeFromString<LedgerTransaction>(request("transfers",HttpMethod.Post,apiJson.encodeToString(submission.input),key=submission.key,ledgerId=ledgerId))
+            transferRequests.clear(scope,submission)
+            return result
+        } catch(e:LedgerException) {
+            if(e.code in listOf("invalid","conflict"))transferRequests.clear(scope,submission)
+            throw e
+        }
+    }
 
     private fun refundScope(ledgerId:String):RefundScope? =
         sessionOrigin?.let { origin->currentUserId?.let { user->RefundScope(origin,user,ledgerId) } }

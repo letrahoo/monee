@@ -8,6 +8,7 @@ data class LedgerTransaction(
     val currency: String, val merchant: String, val category: String, val source: String,
     val account: String, val externalId: String, val note: String, val version: Long,
     val refundOf: String = "",
+    val toAccount: String = "",
 )
 
 @Serializable
@@ -31,6 +32,9 @@ data class Dashboard(
 @Serializable data class RefundInput(val version:Long,val date:String,val amount:String,val currency:String="CNY",val account:String="",val note:String="")
 @Serializable data class RefundSummary(val original:LedgerTransaction,val refundedMinor:String,val remainingMinor:String,val refunds:List<LedgerTransaction>)
 data class RefundSubmission(val originalId:String,val input:RefundInput,val key:String)
+
+@Serializable data class TransferInput(val date:String,val amount:String,val fromAccount:String,val toAccount:String,val currency:String="CNY",val note:String="")
+data class TransferSubmission(val input:TransferInput,val key:String)
 
 @Serializable data class ImportRow(val line: Int, val record: LedgerTransaction, val status: String, val message: String)
 @Serializable data class PendingImportRow(val line:Int,val date:String,val merchant:String,val amount:String,val reason:String)
