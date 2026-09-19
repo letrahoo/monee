@@ -133,6 +133,9 @@ func Restore(directory, target string) error {
 	if v != m.Schema {
 		return fmt.Errorf("backup schema mismatch")
 	}
+	if v > SchemaVersion {
+		return fmt.Errorf("backup requires a newer application")
+	}
 	in, e := os.Open(source)
 	if e != nil {
 		return e

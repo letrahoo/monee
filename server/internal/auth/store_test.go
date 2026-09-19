@@ -187,7 +187,7 @@ func TestConcurrentDuplicateAddAndValidation(t *testing.T) {
 }
 func TestAuthFutureSchemaIsRejected(t *testing.T) {
 	s := testStore(t)
-	if _, e := s.db.Exec("PRAGMA user_version=3"); e != nil {
+	if _, e := s.db.Exec("PRAGMA user_version=4"); e != nil {
 		t.Fatal(e)
 	}
 	if e := s.initialize(nil); e == nil {

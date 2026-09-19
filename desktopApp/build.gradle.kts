@@ -45,6 +45,7 @@ compose.desktop {
     application {
         mainClass = "com.letrahoo.monee.desktop.MainKt"
         nativeDistributions {
+            modules("java.net.http")
             appResourcesRootDir.set(bundleDesktopResources.map { layout.buildDirectory.dir("generated/applicationResources").get() })
             targetFormats(TargetFormat.Dmg)
             packageName = "Monee"

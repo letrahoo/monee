@@ -34,6 +34,17 @@ class LedgerApi {
     private val sessionMutex=Mutex()
     private var sessionOrigin:String?=null
     private var csrf: String = ""
+    private var currentUserId:String?=null
+    private val refundRequests=RefundRequests()
+
+    private fun refundScope(ledgerId:String):RefundScope? =
+        sessionOrigin?.let { origin->currentUserId?.let { user->RefundScope(origin,user,ledgerId) } }
+    fun pendingRefund(ledgerId:String):RefundSubmission?=refundScope(ledgerId)?.let { refundRequests.get(it) }
+    suspend fun prepareRefund(ledgerId:String,originalId:String,input:RefundInput,newKey:()->String):RefundSubmission {
+        destination()
+        val scope=refundScope(ledgerId) ?: throw LedgerException("请先刷新登录状态","unauthenticated")
+        return refundRequests.prepare(scope,originalId,input,newKey)
+    }
 
     fun reconnect() { connection = null }
     fun close() { client.close() }
@@ -41,7 +52,7 @@ class LedgerApi {
     private suspend fun destination():Connection = sessionMutex.withLock {
         val next=connection ?: discoverConnection(client).also { connection=it }
         if(sessionOrigin!=next.baseUrl) {
-            accessToken=loadSession(next.baseUrl);csrf="";sessionOrigin=next.baseUrl
+            accessToken=loadSession(next.baseUrl);csrf="";currentUserId=null;sessionOrigin=next.baseUrl
         }
         next
     }
@@ -80,6 +91,7 @@ class LedgerApi {
         val origin=destination().baseUrl
         val tokenAtStart=accessToken
         val state=apiJson.decodeFromString<AuthState>(request("auth/me"))
+        currentUserId=state.user?.id
         csrf=state.csrfToken
         sessionMutex.withLock {
             if(state.user==null&&accessToken==tokenAtStart) {
@@ -115,7 +127,7 @@ class LedgerApi {
     suspend fun logout() {
         val base=destination().baseUrl
         request("auth/logout",HttpMethod.Post,"{}")
-        sessionMutex.withLock { accessToken=null;csrf="";clearSession(base) }
+        sessionMutex.withLock { accessToken=null;csrf="";currentUserId=null;clearSession(base) }
     }
     suspend fun registeredUsers():RegisteredUsers = apiJson.decodeFromString(request("admin/users"))
     suspend fun setRegisteredUser(user:RegisteredUser) {request("admin/users/${user.id}",HttpMethod.Patch,apiJson.encodeToString(AccessChange(!user.enabled,user.version)))}
@@ -132,6 +144,21 @@ class LedgerApi {
     suspend fun previewCorrection(ledgerId:String,id:String,input:CorrectionInput):CorrectionPreview = apiJson.decodeFromString(request("transactions/$id/correction/preview",HttpMethod.Post,apiJson.encodeToString(input),ledgerId=ledgerId))
     suspend fun correct(ledgerId:String,id:String,input:CorrectionInput):LedgerTransaction = apiJson.decodeFromString(request("transactions/$id/correction",HttpMethod.Patch,apiJson.encodeToString(input),ledgerId=ledgerId))
     suspend fun correctionHistory(ledgerId:String,id:String):List<CorrectionRevision> = apiJson.decodeFromString(request("transactions/$id/corrections",ledgerId=ledgerId))
+    suspend fun refunds(ledgerId:String,id:String):RefundSummary = apiJson.decodeFromString(request("transactions/$id/refunds",ledgerId=ledgerId))
+    suspend fun createRefund(ledgerId:String,submission:RefundSubmission):LedgerTransaction {
+        destination()
+        val scope=refundScope(ledgerId) ?: throw LedgerException("请先刷新登录状态","unauthenticated")
+        require(refundRequests.get(scope)==submission){"退款请求不属于当前账号或账本"}
+        try {
+            val result=apiJson.decodeFromString<LedgerTransaction>(request("transactions/${submission.originalId}/refunds",HttpMethod.Post,apiJson.encodeToString(submission.input),key=submission.key,ledgerId=ledgerId))
+            refundRequests.clear(scope,submission)
+            return result
+        } catch(e:LedgerException) {
+            // Transport/server errors are uncertain: retain the exact request.
+            if(e.code in listOf("invalid","conflict"))refundRequests.clear(scope,submission)
+            throw e
+        }
+    }
     suspend fun transactionSources(ledgerId:String,id:String):List<TransactionSource> = apiJson.decodeFromString(request("transactions/$id/sources",ledgerId=ledgerId))
     suspend fun annotationHistory(ledgerId:String,id:String):List<AnnotationRevision> = apiJson.decodeFromString(request("transactions/$id/annotations",ledgerId=ledgerId))
     suspend fun importUndoPreview(ledgerId:String,id:String,restore:Boolean=false):ImportUndoPreview = apiJson.decodeFromString(request("imports/$id/${if(restore)"restore"else"undo"}-preview",ledgerId=ledgerId))

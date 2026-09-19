@@ -128,6 +128,10 @@ func (s *Store) previewImportUndo(tx *sql.Tx, id string, restore bool) (ImportUn
 		}
 		row := ImportUndoRow{TransactionID: t.ID, Date: t.Date, Merchant: t.Merchant, Type: t.Type, AmountMinor: t.AmountMinor, Action: "preserve"}
 		prior, owned := state.Changes[t.ID]
+		refunded, e := s.refundTotal(tx, t.ID)
+		if e != nil {
+			return out, state, e
+		}
 		switch {
 		case out.AlreadyApplied:
 			row.Reason = "本次操作已完成，无需重复处理"
@@ -145,6 +149,8 @@ func (s *Store) previewImportUndo(tx *sql.Tx, id string, restore bool) (ImportUn
 			row.Reason = "本批仅关联已有交易，保持不变"
 		case deleted.Valid:
 			row.Reason = "已被其他操作移除，保持不变"
+		case refunded > 0:
+			row.Reason = "存在退款关联，保留原消费及退款"
 		case t.Version != 1 && !(owned && prior.DeletedAt == "" && t.Version == prior.Version):
 			row.Reason = "交易已修改，保留当前记录"
 		default:

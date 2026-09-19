@@ -24,12 +24,18 @@ kotlin {
             implementation(libs.serialization.json)
         }
         jvmMain.dependencies {
-            implementation(libs.ktor.cio)
+            implementation(libs.ktor.java)
             implementation(libs.coroutines.swing)
         }
         wasmJsMain.dependencies { implementation(libs.ktor.js) }
         commonTest.dependencies { implementation(kotlin("test")) }
+        jvmTest.dependencies { implementation(libs.ktor.mock) }
     }
+}
+
+tasks.withType<Test>().configureEach {
+    // Explicit live diagnostics must run even when code/test inputs have not changed.
+    if (System.getenv("MONEE_TEST_REMOTE") == "1") outputs.upToDateWhen { false }
 }
 
 val prepareBrandResources by tasks.registering(Sync::class) {

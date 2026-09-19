@@ -56,11 +56,20 @@ func (s *Store) Annotate(id string, in AnnotationInput) (Transaction, error) {
 	out = before
 	out.Category = in.Category
 	out.Note = in.Note
+	if out.Category != before.Category {
+		total, err := s.refundTotal(tx, id)
+		if err != nil {
+			return out, err
+		}
+		if before.Type == "refund" || total > 0 {
+			return out, problem("invalid", "已有退款关联，暂不支持单独修改关联交易分类；备注仍可修改")
+		}
+	}
 	if out == before {
 		return out, nil
 	}
 	out.Version++
-	account, e := s.account(tx, out.Type, out.Category)
+	account, e := s.account(tx, categoryKind(out), out.Category)
 	if e != nil {
 		return out, e
 	}
@@ -69,7 +78,7 @@ func (s *Store) Annotate(id string, in AnnotationInput) (Transaction, error) {
 	if _, e = tx.Exec("UPDATE transactions SET category=?,note=?,version=?,updated_at=? WHERE ledger_id=? AND id=? AND version=?", out.Category, out.Note, out.Version, now(), s.ledgerID, id, in.Version); e != nil {
 		return out, e
 	}
-	if _, e = tx.Exec("UPDATE postings SET account_id=? WHERE transaction_id=? AND account_id IN (SELECT id FROM accounts WHERE ledger_id=? AND kind=?)", account, id, s.ledgerID, out.Type); e != nil {
+	if _, e = tx.Exec("UPDATE postings SET account_id=? WHERE transaction_id=? AND account_id IN (SELECT id FROM accounts WHERE ledger_id=? AND kind=?)", account, id, s.ledgerID, categoryKind(out)); e != nil {
 		return out, e
 	}
 	if _, e = tx.Exec("UPDATE ledgers SET version=version+1 WHERE id=?", s.ledgerID); e != nil {
