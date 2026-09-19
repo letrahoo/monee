@@ -11,6 +11,8 @@ import kotlin.js.JsString
 import kotlin.js.Promise
 import kotlin.js.js
 
+internal actual suspend fun preparePlatformClient() = Unit
+
 internal actual fun platformClient() = HttpClient(Js) {
     install(HttpTimeout) { requestTimeoutMillis = 20_000 }
 }

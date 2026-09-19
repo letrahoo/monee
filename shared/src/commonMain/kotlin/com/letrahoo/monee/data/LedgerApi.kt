@@ -13,6 +13,8 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 internal val apiJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+// Finish platform file access before constructing the client on the UI thread.
+internal expect suspend fun preparePlatformClient()
 internal expect fun platformClient(): HttpClient
 internal expect suspend fun discoverConnection(client: HttpClient): Connection
 expect suspend fun chooseCSV(): PickedCSV?
