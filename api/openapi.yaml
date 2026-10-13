@@ -148,6 +148,41 @@ paths:
             application/json:
               schema: {"$ref": "#/components/schemas/Transaction"}
         default: {"$ref": "#/components/responses/Error"}
+  "/api/v1/transfers":
+    post:
+      operationId: createTransfer
+      description: Record a confirmed CNY movement between two distinct explicitly named
+        personal funding accounts; never executes a bank transfer. Owner/editor only.
+        Creates two opposite clearing postings atomically with audit, ledger version
+        and idempotency response. Does not count as income, expense or refund.
+        Same normalized input and key replay the original response after permission
+        recheck; changed input or another operation with this key returns 409.
+        Unknown source sides must remain pending rather than be guessed.
+      parameters:
+      - in: header
+        name: X-Monee-Ledger
+        schema: {type: string}
+        description: Explicit ledger scope; membership is rechecked on each request.
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema: {type: string, minLength: 16, maxLength: 128}
+      - in: header
+        name: X-Monee-CSRF
+        schema: {type: string}
+        description: Required for cookie-authenticated writes, not native Bearer sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref": "#/components/schemas/TransferInput"}
+      responses:
+        '201':
+          description: New transfer, or original saved response on retry.
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/Transaction"}
+        default: {"$ref": "#/components/responses/Error"}
   "/api/v1/transactions":
     post:
       operationId: createTransaction
@@ -1786,8 +1821,11 @@ components:
           - income
           - expense
           - refund
+          - transfer
         amountMinor:
           "$ref": "#/components/schemas/Minor"
+          description: Signed expense/income/refund amount. For transfer only, positive
+            magnitude from account to toAccount; NOT income. Excluded from all cashflow totals.
         currency:
           type: string
           const: CNY
@@ -1807,12 +1845,38 @@ components:
           type: string
           format: uuid
           description: Present only for refunds; stable original expense ID in this ledger.
+        toAccount:
+          type: string
+          description: Present only for transfer; destination funding account. The account
+            property is its source. Neither side implies a verified asset balance.
         note:
           type: string
         version:
           type: integer
           format: int64
           minimum: 1
+    TransferInput:
+      type: object
+      additionalProperties: false
+      required: [date, amount, currency, fromAccount, toAccount]
+      properties:
+        date: {type: string, format: date, description: 'Valid Gregorian date between 1900 and 2200.'}
+        amount:
+          type: string
+          pattern: '^[0-9]{1,11}(\.[0-9]{1,2})?$'
+          description: Positive yuan up to 10000000000.00, at most two decimals.
+        currency: {type: string, const: CNY}
+        fromAccount:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Explicit source funding account; cannot be blank or 待核实资金账户.
+        toAccount:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Explicit destination; cannot be blank, 待核实资金账户, or equal to trimmed fromAccount.
+        note: {type: string, maxLength: 1000}
     RefundInput:
       type: object
       additionalProperties: false

@@ -11,6 +11,16 @@ import java.awt.Frame
 import java.nio.file.Files
 import java.nio.file.Path
 
+internal actual suspend fun preparePlatformClient() = prepareDesktopClientConfiguration()
+
+internal suspend fun prepareDesktopClientConfiguration(
+    load: () -> Result<DesktopRemote?> = { DesktopRemoteConfiguration.current },
+) {
+    // A macOS file-access prompt may leave a certificate read waiting indefinitely.
+    // Keep it off the EDT; retain the cached failure so invalid TLS never falls back.
+    withContext(Dispatchers.IO) { load() }
+}
+
 internal actual fun platformClient() = desktopHttpClient(DesktopRemoteConfiguration.current)
 
 internal fun desktopHttpClient(configuration: Result<DesktopRemote?>) = HttpClient(Java) {

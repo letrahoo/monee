@@ -56,6 +56,9 @@ func (s *Store) Annotate(id string, in AnnotationInput) (Transaction, error) {
 	out = before
 	out.Category = in.Category
 	out.Note = in.Note
+	if before.Type == "transfer" && out.Category != before.Category {
+		return out, problem("invalid", "本人转账不参与收支分类；只能修改备注")
+	}
 	if out.Category != before.Category {
 		total, err := s.refundTotal(tx, id)
 		if err != nil {
@@ -69,17 +72,19 @@ func (s *Store) Annotate(id string, in AnnotationInput) (Transaction, error) {
 		return out, nil
 	}
 	out.Version++
-	account, e := s.account(tx, categoryKind(out), out.Category)
-	if e != nil {
-		return out, e
-	}
 	// Keep the source fingerprint immutable so a user annotation never turns a
 	// repeated source import into a conflicting new payment.
 	if _, e = tx.Exec("UPDATE transactions SET category=?,note=?,version=?,updated_at=? WHERE ledger_id=? AND id=? AND version=?", out.Category, out.Note, out.Version, now(), s.ledgerID, id, in.Version); e != nil {
 		return out, e
 	}
-	if _, e = tx.Exec("UPDATE postings SET account_id=? WHERE transaction_id=? AND account_id IN (SELECT id FROM accounts WHERE ledger_id=? AND kind=?)", account, id, s.ledgerID, categoryKind(out)); e != nil {
-		return out, e
+	if out.Type != "transfer" {
+		account, err := s.account(tx, categoryKind(out), out.Category)
+		if err != nil {
+			return out, err
+		}
+		if _, e = tx.Exec("UPDATE postings SET account_id=? WHERE transaction_id=? AND account_id IN (SELECT id FROM accounts WHERE ledger_id=? AND kind=?)", account, id, s.ledgerID, categoryKind(out)); e != nil {
+			return out, e
+		}
 	}
 	if _, e = tx.Exec("UPDATE ledgers SET version=version+1 WHERE id=?", s.ledgerID); e != nil {
 		return out, e

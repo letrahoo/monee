@@ -60,7 +60,7 @@ func Open(path string) (*Store, error) {
 		return fail(problem("future_schema", "数据库来自更新版本，拒绝以旧程序写入"))
 	}
 	if version > 0 && version < storage.SchemaVersion {
-		if err = storage.Snapshot(path, path+".backup-before-v3-"+newID()); err != nil {
+		if err = storage.Snapshot(path, path+".backup-before-v"+strconv.Itoa(storage.SchemaVersion)+"-"+newID()); err != nil {
 			return fail(err)
 		}
 	}
@@ -97,6 +97,11 @@ func Open(path string) (*Store, error) {
 	}
 	if version < 3 {
 		if err = migrateRefundSchema(db); err != nil {
+			return fail(err)
+		}
+	}
+	if version < 4 {
+		if err = migrateTransferSchema(db); err != nil {
 			return fail(err)
 		}
 	}
@@ -143,7 +148,11 @@ func (s *Store) insert(tx *sql.Tx, t Transaction) error {
 	if err != nil {
 		return err
 	}
-	category, err := s.account(tx, categoryKind(t), t.Category)
+	categoryType, categoryName, fundMinor := categoryKind(t), t.Category, minor
+	if t.Type == "transfer" {
+		categoryType, categoryName, fundMinor = "clearing", t.ToAccount, -minor
+	}
+	category, err := s.account(tx, categoryType, categoryName)
 	if err != nil {
 		return err
 	}
@@ -160,6 +169,11 @@ func (s *Store) insert(tx *sql.Tx, t Transaction) error {
 		values += ",?"
 		args = append(args, t.RefundOf)
 	}
+	if t.Type == "transfer" {
+		columns += ",to_account"
+		values += ",?"
+		args = append(args, t.ToAccount)
+	}
 	_, err = tx.Exec("INSERT INTO transactions("+columns+") VALUES("+values+")", args...)
 	if err != nil {
 		return err
@@ -168,7 +182,7 @@ func (s *Store) insert(tx *sql.Tx, t Transaction) error {
 	for _, p := range []struct {
 		account string
 		amount  int64
-	}{{fund, minor}, {category, -minor}} {
+	}{{fund, fundMinor}, {category, -fundMinor}} {
 		id := newID()
 		if _, err = tx.Exec("INSERT INTO postings VALUES(?,?,?,?,?)", id, t.ID, p.account, p.amount, "CNY"); err != nil {
 			return err
@@ -243,12 +257,12 @@ func (s *Store) Create(in Input, key string) (Transaction, error) {
 	return t, tx.Commit()
 }
 
-const transactionColumns = `id,occurred_on,kind,amount_minor,currency,merchant,category,source,account,external_id,note,version,COALESCE(refund_of,'')`
+const transactionColumns = `id,occurred_on,kind,amount_minor,currency,merchant,category,source,account,external_id,note,version,COALESCE(refund_of,''),COALESCE(to_account,'')`
 
 func scanRecord(row interface{ Scan(...any) error }) (Transaction, error) {
 	var t Transaction
 	var minor int64
-	err := row.Scan(&t.ID, &t.Date, &t.Type, &minor, &t.Currency, &t.Merchant, &t.Category, &t.Source, &t.Account, &t.ExternalID, &t.Note, &t.Version, &t.RefundOf)
+	err := row.Scan(&t.ID, &t.Date, &t.Type, &minor, &t.Currency, &t.Merchant, &t.Category, &t.Source, &t.Account, &t.ExternalID, &t.Note, &t.Version, &t.RefundOf, &t.ToAccount)
 	t.AmountMinor = strconv.FormatInt(minor, 10)
 	return t, err
 }
@@ -311,7 +325,10 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 			return d, e
 		}
 		minor, _ := strconv.ParseInt(t.AmountMinor, 10, 64)
-		if t.Type == "refund" {
+		if t.Type == "transfer" {
+			// A positive magnitude is not income: both legs are funding accounts.
+			// Keep the event in the month/list without adding it to any totals.
+		} else if t.Type == "refund" {
 			if minor <= 0 || refunds > math.MaxInt64-minor {
 				return d, problem("overflow", "统计金额超出可表示范围")
 			}
@@ -331,7 +348,7 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 		}
 		d.TotalCount++
 		sources[t.Source] = true
-		if query == "" || strings.Contains(strings.ToLower(strings.Join([]string{t.Merchant, t.Category, t.Source, t.Account, t.Note}, "\n")), query) {
+		if query == "" || strings.Contains(strings.ToLower(strings.Join([]string{t.Merchant, t.Category, t.Source, t.Account, t.ToAccount, t.Note}, "\n")), query) {
 			if d.FilteredCount >= (page-1)*PageSize && d.FilteredCount < page*PageSize {
 				d.Transactions = append(d.Transactions, t)
 			}

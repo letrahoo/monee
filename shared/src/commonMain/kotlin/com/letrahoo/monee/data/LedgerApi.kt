@@ -13,6 +13,8 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 internal val apiJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+// Finish platform file access before constructing the client on the UI thread.
+internal expect suspend fun preparePlatformClient()
 internal expect fun platformClient(): HttpClient
 internal expect suspend fun discoverConnection(client: HttpClient): Connection
 expect suspend fun chooseCSV(): PickedCSV?
@@ -27,8 +29,16 @@ internal expect suspend fun loadSession(base:String):String?
 internal expect suspend fun saveSession(base:String,token:String)
 internal expect suspend fun clearSession(base:String)
 
-class LedgerApi {
-    private val client = platformClient()
+class LedgerApi internal constructor(
+    private val client: HttpClient,
+    private val discover: suspend (HttpClient) -> Connection,
+    private val readSession: suspend (String) -> String?,
+    private val writeSession: suspend (String, String) -> Unit,
+    private val removeSession: suspend (String) -> Unit,
+) {
+    // Production always uses the platform transport, discovery and secure vault.
+    // Internal injection lets isolated tests exercise the real request lifecycle.
+    constructor() : this(platformClient(), ::discoverConnection, ::loadSession, ::saveSession, ::clearSession)
     private var connection: Connection? = null
     private var accessToken: String? = null
     private val sessionMutex=Mutex()
@@ -36,6 +46,29 @@ class LedgerApi {
     private var csrf: String = ""
     private var currentUserId:String?=null
     private val refundRequests=RefundRequests()
+    private val transferRequests=TransferRequests()
+
+    private fun transferScope(ledgerId:String):TransferScope? =
+        sessionOrigin?.let { origin->currentUserId?.let { user->TransferScope(origin,user,ledgerId) } }
+    fun pendingTransfer(ledgerId:String):TransferSubmission?=transferScope(ledgerId)?.let { transferRequests.get(it) }
+    suspend fun prepareTransfer(ledgerId:String,input:TransferInput,newKey:()->String):TransferSubmission {
+        destination()
+        val scope=transferScope(ledgerId) ?: throw LedgerException("请先刷新登录状态","unauthenticated")
+        return transferRequests.prepare(scope,input,newKey)
+    }
+    suspend fun createTransfer(ledgerId:String,submission:TransferSubmission):LedgerTransaction {
+        destination()
+        val scope=transferScope(ledgerId) ?: throw LedgerException("请先刷新登录状态","unauthenticated")
+        require(transferRequests.get(scope)==submission){"转账请求不属于当前账号或账本"}
+        try {
+            val result=apiJson.decodeFromString<LedgerTransaction>(request("transfers",HttpMethod.Post,apiJson.encodeToString(submission.input),key=submission.key,ledgerId=ledgerId))
+            transferRequests.clear(scope,submission)
+            return result
+        } catch(e:LedgerException) {
+            if(e.code in listOf("invalid","conflict"))transferRequests.clear(scope,submission)
+            throw e
+        }
+    }
 
     private fun refundScope(ledgerId:String):RefundScope? =
         sessionOrigin?.let { origin->currentUserId?.let { user->RefundScope(origin,user,ledgerId) } }
@@ -50,9 +83,9 @@ class LedgerApi {
     fun close() { client.close() }
 
     private suspend fun destination():Connection = sessionMutex.withLock {
-        val next=connection ?: discoverConnection(client).also { connection=it }
+        val next=connection ?: discover(client).also { connection=it }
         if(sessionOrigin!=next.baseUrl) {
-            accessToken=loadSession(next.baseUrl);csrf="";currentUserId=null;sessionOrigin=next.baseUrl
+            accessToken=readSession(next.baseUrl);csrf="";currentUserId=null;sessionOrigin=next.baseUrl
         }
         next
     }
@@ -96,7 +129,7 @@ class LedgerApi {
         sessionMutex.withLock {
             if(state.user==null&&accessToken==tokenAtStart) {
                 accessToken=null
-                if(tokenAtStart!=null)clearSession(origin)
+                if(tokenAtStart!=null)removeSession(origin)
             }
         }
         return state
@@ -114,7 +147,7 @@ class LedgerApi {
                 when(result.status) {
                     "complete" -> {
                         if(result.token.isBlank())throw LedgerException("登录未完成")
-                        sessionMutex.withLock { accessToken=result.token;saveSession(base,result.token) }
+                        sessionMutex.withLock { accessToken=result.token;writeSession(base,result.token) }
                         returnToApplication()
                         return@withTimeout
                     }
@@ -127,7 +160,7 @@ class LedgerApi {
     suspend fun logout() {
         val base=destination().baseUrl
         request("auth/logout",HttpMethod.Post,"{}")
-        sessionMutex.withLock { accessToken=null;csrf="";currentUserId=null;clearSession(base) }
+        sessionMutex.withLock { accessToken=null;csrf="";currentUserId=null;removeSession(base) }
     }
     suspend fun registeredUsers():RegisteredUsers = apiJson.decodeFromString(request("admin/users"))
     suspend fun setRegisteredUser(user:RegisteredUser) {request("admin/users/${user.id}",HttpMethod.Patch,apiJson.encodeToString(AccessChange(!user.enabled,user.version)))}

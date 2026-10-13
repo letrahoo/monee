@@ -50,6 +50,7 @@ type Transaction struct {
 	Note        string `json:"note"`
 	Version     int64  `json:"version"`
 	RefundOf    string `json:"refundOf,omitempty"`
+	ToAccount   string `json:"toAccount,omitempty"`
 }
 
 type CategoryTotal struct {

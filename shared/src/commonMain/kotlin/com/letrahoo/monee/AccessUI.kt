@@ -30,6 +30,35 @@ import org.jetbrains.compose.resources.painterResource
 
 @Composable
 fun App() {
+    var prepared by remember { mutableStateOf(false) }
+    var preparationFailed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        try {
+            preparePlatformClient()
+            prepared = true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            preparationFailed = true
+        }
+    }
+    if (!prepared) {
+        MaterialTheme {
+            Column(Modifier.fillMaxSize().background(Color(0xFFF6F7F2)).padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center) {
+                if (!preparationFailed) CircularProgressIndicator(color = Pine)
+                Spacer(Modifier.height(16.dp))
+                Text(if (preparationFailed) "无法准备连接，请重新启动应用。" else "正在准备连接…", color = Ink)
+            }
+        }
+        return
+    }
+    PreparedApp()
+}
+
+@Composable
+private fun PreparedApp() {
     val api=remember {LedgerApi()}
     val scope=rememberCoroutineScope()
     var auth by remember {mutableStateOf<AuthState?>(null)}
