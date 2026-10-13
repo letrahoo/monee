@@ -29,8 +29,16 @@ internal expect suspend fun loadSession(base:String):String?
 internal expect suspend fun saveSession(base:String,token:String)
 internal expect suspend fun clearSession(base:String)
 
-class LedgerApi {
-    private val client = platformClient()
+class LedgerApi internal constructor(
+    private val client: HttpClient,
+    private val discover: suspend (HttpClient) -> Connection,
+    private val readSession: suspend (String) -> String?,
+    private val writeSession: suspend (String, String) -> Unit,
+    private val removeSession: suspend (String) -> Unit,
+) {
+    // Production always uses the platform transport, discovery and secure vault.
+    // Internal injection lets isolated tests exercise the real request lifecycle.
+    constructor() : this(platformClient(), ::discoverConnection, ::loadSession, ::saveSession, ::clearSession)
     private var connection: Connection? = null
     private var accessToken: String? = null
     private val sessionMutex=Mutex()
@@ -75,9 +83,9 @@ class LedgerApi {
     fun close() { client.close() }
 
     private suspend fun destination():Connection = sessionMutex.withLock {
-        val next=connection ?: discoverConnection(client).also { connection=it }
+        val next=connection ?: discover(client).also { connection=it }
         if(sessionOrigin!=next.baseUrl) {
-            accessToken=loadSession(next.baseUrl);csrf="";currentUserId=null;sessionOrigin=next.baseUrl
+            accessToken=readSession(next.baseUrl);csrf="";currentUserId=null;sessionOrigin=next.baseUrl
         }
         next
     }
@@ -121,7 +129,7 @@ class LedgerApi {
         sessionMutex.withLock {
             if(state.user==null&&accessToken==tokenAtStart) {
                 accessToken=null
-                if(tokenAtStart!=null)clearSession(origin)
+                if(tokenAtStart!=null)removeSession(origin)
             }
         }
         return state
@@ -139,7 +147,7 @@ class LedgerApi {
                 when(result.status) {
                     "complete" -> {
                         if(result.token.isBlank())throw LedgerException("登录未完成")
-                        sessionMutex.withLock { accessToken=result.token;saveSession(base,result.token) }
+                        sessionMutex.withLock { accessToken=result.token;writeSession(base,result.token) }
                         returnToApplication()
                         return@withTimeout
                     }
@@ -152,7 +160,7 @@ class LedgerApi {
     suspend fun logout() {
         val base=destination().baseUrl
         request("auth/logout",HttpMethod.Post,"{}")
-        sessionMutex.withLock { accessToken=null;csrf="";currentUserId=null;clearSession(base) }
+        sessionMutex.withLock { accessToken=null;csrf="";currentUserId=null;removeSession(base) }
     }
     suspend fun registeredUsers():RegisteredUsers = apiJson.decodeFromString(request("admin/users"))
     suspend fun setRegisteredUser(user:RegisteredUser) {request("admin/users/${user.id}",HttpMethod.Patch,apiJson.encodeToString(AccessChange(!user.enabled,user.version)))}

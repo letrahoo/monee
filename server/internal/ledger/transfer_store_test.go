@@ -1,12 +1,15 @@
 package ledger
 
 import (
+	"errors"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/letrahoo/monee/server/internal/storage"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 func assertTransferPostings(t *testing.T, s *Store, tr Transaction) {
@@ -158,8 +161,9 @@ func TestTransferConcurrentReplayAndPersistence(t *testing.T) {
 	}
 	defer other.Close()
 	type result struct {
-		tr  Transaction
-		err error
+		tr    Transaction
+		err   error
+		store *Store
 	}
 	results := make(chan result, 8)
 	start := make(chan struct{})
@@ -171,27 +175,48 @@ func TestTransferConcurrentReplayAndPersistence(t *testing.T) {
 		go func(s *Store) {
 			<-start
 			tr, e := s.CreateTransfer(syntheticTransfer(), "transfer-concurrent-001")
-			results <- result{tr, e}
+			results <- result{tr, e, s}
 		}(store)
 	}
 	close(start)
 	var first Transaction
+	var failed []*Store
 	for i := 0; i < 8; i++ {
 		r := <-results
-		if r.err == nil {
-			if first.ID != "" && first != r.tr {
-				t.Fatal("distinct replay")
+		if r.err != nil {
+			var sqliteErr *sqlite.Error
+			if !errors.As(r.err, &sqliteErr) || (sqliteErr.Code()&0xff != sqlite3.SQLITE_BUSY && sqliteErr.Code()&0xff != sqlite3.SQLITE_LOCKED) {
+				t.Errorf("unexpected concurrent transfer error: %v", r.err)
+			} else {
+				failed = append(failed, r.store)
 			}
-			first = r.tr
+			continue
 		}
+		if first.ID != "" && first != r.tr {
+			t.Error("distinct replay")
+		}
+		first = r.tr
+	}
+	if t.Failed() {
+		t.FailNow()
 	}
 	if first.ID == "" || count(t, s, "transactions") != 1 || count(t, s, "postings") != 2 || dashboard(t, s).Version != 1 {
 		t.Fatal("not exactly once")
 	}
-	// SQLite may reject a simultaneous read-to-write promotion. After settling,
-	// either connection must replay the single committed result with the same key.
-	if tr, e := other.CreateTransfer(syntheticTransfer(), "transfer-concurrent-001"); e != nil || tr != first {
-		t.Fatal(tr, e)
+	// SQLite may reject a simultaneous read-to-write promotion. Once every
+	// attempt has settled, retry every failed attempt on its original connection.
+	// Neither the retries nor successful replays may add versions or audit rows.
+	settled := transferWriteState(t, s)
+	if settled != [6]int64{1, 2, 2, 1, 3, 1} {
+		t.Fatalf("not exactly once across write tables: %v", settled)
+	}
+	for _, store := range append(failed, s, other) {
+		if tr, e := store.CreateTransfer(syntheticTransfer(), "transfer-concurrent-001"); e != nil || tr != first {
+			t.Fatal(tr, e)
+		}
+		if got := transferWriteState(t, s); got != settled {
+			t.Fatalf("settled retry changed write state: got %v want %v", got, settled)
+		}
 	}
 	other.Close()
 	s.Close()
@@ -202,6 +227,9 @@ func TestTransferConcurrentReplayAndPersistence(t *testing.T) {
 	defer s.Close()
 	if tr, e := s.CreateTransfer(syntheticTransfer(), "transfer-concurrent-001"); e != nil || tr != first {
 		t.Fatal(tr, e)
+	}
+	if got := transferWriteState(t, s); got != settled {
+		t.Fatalf("reopened replay changed write state: got %v want %v", got, settled)
 	}
 	bundle := filepath.Join(t.TempDir(), "backup")
 	if err = storage.Snapshot(path, bundle); err != nil {
@@ -218,6 +246,9 @@ func TestTransferConcurrentReplayAndPersistence(t *testing.T) {
 	defer r.Close()
 	if tr, e := r.CreateTransfer(syntheticTransfer(), "transfer-concurrent-001"); e != nil || tr != first {
 		t.Fatal(tr, e)
+	}
+	if got := transferWriteState(t, r); got != settled {
+		t.Fatalf("restored replay changed write state: got %v want %v", got, settled)
 	}
 	assertTransferPostings(t, r, first)
 }
