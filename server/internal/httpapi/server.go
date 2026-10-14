@@ -87,6 +87,7 @@ func (a API) Handler() http.Handler {
 	a.registerRefunds(mux)
 	a.registerImportUndo(mux)
 	a.registerReviewQueue(mux)
+	a.registerAnnual(mux)
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"status": "ok", "apiVersion": 1, "schemaVersion": storage.SchemaVersion, "instanceId": a.InstanceID, "serviceProtocol": a.ServiceProtocol})
 	})
@@ -98,16 +99,22 @@ func (a API) Handler() http.Handler {
 		if !ok {
 			return
 		}
+		params, valid := queryParameters(w, r, "month", "q", "page", "type", "accountId", "category")
+		if !valid {
+			return
+		}
 		page := 1
 		var err error
-		if value := r.URL.Query().Get("page"); value != "" {
+		if value := params.Get("page"); value != "" {
 			page, err = strconv.Atoi(value)
 		}
 		if err != nil {
 			fail(w, &ledger.Problem{Code: "invalid", Message: "分页参数无效"})
 			return
 		}
-		result, err := store.Dashboard(r.URL.Query().Get("month"), r.URL.Query().Get("q"), page)
+		result, err := store.DashboardWithFilters(params.Get("month"), params.Get("q"), page, ledger.DashboardFilters{
+			Type: params.Get("type"), AccountID: params.Get("accountId"), Category: params.Get("category"),
+		})
 		if err != nil {
 			fail(w, err)
 			return
