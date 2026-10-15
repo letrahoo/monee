@@ -5,11 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Monee — Know Your Money. Own Your Future.">
   <title>Monee</title>
-  <style>html,body,#monee{width:100%;height:100%;margin:0;background:#f6f7f2}</style>
+  <style>
+    html,body,#monee{width:100%;height:100%;margin:0;background:#f6f7f2}
+    [hidden]{display:none!important}
+    #startup{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:24px;box-sizing:border-box;background:#f6f7f2;color:#20372f;font:16px/1.7 system-ui,sans-serif}
+    #startup>section{max-width:520px}#startup h1{color:#165b4a;font-size:26px}
+    #startup button{min-height:48px;padding:10px 20px;border:1px solid #165b4a;border-radius:8px;background:#165b4a;color:white;font:inherit;cursor:pointer}
+    #startup button:focus-visible{outline:3px solid #8a3b17;outline-offset:4px}
+  </style>
 </head>
 <body>
-  <div id="monee"></div>
-  <noscript>请启用 JavaScript，并使用支持 WebAssembly GC 的浏览器。</noscript>
-  <script src="monee.js"></script>
+  <div id="monee" inert></div>
+  <main id="startup" role="status" aria-labelledby="startup-title" aria-busy="true">
+    <section>
+      <h1 id="startup-title">正在启动 Monee</h1>
+      <p id="startup-message">正在加载界面。</p>
+      <button id="startup-retry" type="button" hidden>重新加载页面</button>
+      <noscript>请启用 JavaScript，并使用支持 WebAssembly GC 和 WebGL 2 的新版浏览器。</noscript>
+    </section>
+  </main>
+  <script src="bootstrap.js" defer></script>
 </body>
 </html>
