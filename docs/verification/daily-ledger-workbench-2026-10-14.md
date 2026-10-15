@@ -38,9 +38,19 @@ M-09 草稿 PR #14 未合并；其 schema4/转账登记/HTTPS 桌面增量没有
 - 实际启动 Mac 分发包，使用上述独立目录；进程启动且仅输出既有 SLF4J 日志。只读窗口查询发生 AppleEvent 超时，未观察窗口控件，不能称 Mac 登录页或工作台操作通过。
 - 两个自行启动的候选进程在冒烟后停止；现有其他服务/应用未被终止。独立目录保留在 Git 忽略范围，不提交或共享截图。
 
+## 启动边界追查与修正（2026-10-15）
+
+代码增量 `ec8caa3`：新增原生 HTML 启动/失败/慢加载面板，独立 self-source bootstrap，进入 Compose 前一次性严格 WebGL2 probe并释放临时context；失败不加载真实应用、不触发auth接口。启动期间底层#monee保持inert；失败可整页重载，不清cookie/storage；Compose帧调度后解除面板与inert，并移除启动错误监听。该帧回调不等于像素验收；另以实际截图核验。
+
+CDP已定位旧空背景为 `--disable-gpu` 环境中Skiko无法使用图形context并抛getParameter/协程异常，不是年度API故障；只说明该配置不可用，不外推普通硬件浏览器故障。用独立 Chrome155 ANGLE SwiftShader 诊断（仅本机可信测试，unsafe software标志不是生产建议）实际看到正常品牌和无凭据登录卡、禁用提供方、auth/me请求，无Runtime.exceptionThrown。
+
+新包实际负例：无WebGL环境显示“无法启动图形界面”与原生重载按钮，只有bootstrap请求、不加载monee.js/Wasm、不请求auth；无启动Runtime异常。新包实际恢复：在隔离software浏览器用测试脚本故障注入一次WebGL2不可用，确认错误标题/按钮焦点/inert；移除故障后实际点击原生重载按钮，重新进入真实Compose登录卡，原生面板隐藏、inert解除、auth/me与品牌字体资源加载、无Runtime异常，合成localStorage哨兵保持。截图人工检查确认为登录卡，不只依赖DOM/canvas存在。首次CDP Enter未触发重载并超时，没有把该尝试记为键盘恢复通过；重试鼠标点击验证通过。测试故障仅图形能力，没有身份注入或鉴权绕过。
+
+新增 Node 原生启动保护7项测试通过并接入三平台Build CI；后端完整race/vet、共享测试、Web生产/Mac分发再次通过。独立静态审查无剩余确认P1/P2。原HEAD2b7058e六项CI已全成功：Build run38617868822、Compose/images run38617868800，release按PR条件跳过；ec8caa3及后续文档最终HEAD需另收齐。
+
 ## 未完成：正式可交付门槛
 
-- [ ] 核实 Web 空白 headless 结果，取得正常浏览器渲染证据；不能沿用构建成功替代。
+- [x] 核实 Web headless 空背景并取得隔离software环境无凭据登录页真实渲染/故障恢复证据；不作为正常硬件性能或OAuth后账本验收。
 - [ ] 新独立实例正常 OAuth，不复制会话令牌、不注入正常入口的合成提供方。
 - [ ] Web/Mac 四 Tab、连续输入/输入法、滚动返回、月份 Escape/焦点、窄屏、空/失败/恢复及权限交互。
 - [ ] 正常登录后的跨月退款、年度/月度/类别一致，类型/稳定账户/分类筛选、组合分页、清除及服务重启。
