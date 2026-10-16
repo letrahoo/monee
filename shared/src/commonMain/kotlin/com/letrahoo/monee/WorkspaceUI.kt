@@ -19,6 +19,7 @@ internal fun String.ledgerRole()=when(this){"owner"->"所有者";"editor"->"可�
 @Composable
 internal fun WorkspaceScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authError:String?,onLogout:()->Unit,onManage:()->Unit,onAccessLost:()->Unit){
  val scope=rememberCoroutineScope()
+ val views = remember(user.id) { mutableMapOf<String, LedgerViewState>() }
  var ledgers by remember {mutableStateOf<List<LedgerInfo>>(emptyList())}
  var invites by remember {mutableStateOf<List<LedgerInvitation>>(emptyList())}
  var account by remember {mutableStateOf<AccountState?>(null)}
@@ -47,6 +48,7 @@ internal fun WorkspaceScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
    try{
     val list=api.ledgers().ledgers
     ledgers=list
+    views.keys.retainAll(list.map { it.id }.toSet())
     if(selected!=null&&list.none{it.id==selected})selected=null
     invites=api.invitations().invitations
     account=api.account();error=null
@@ -62,7 +64,7 @@ internal fun WorkspaceScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
  fun act(action:suspend()->Unit){scope.launch{busy=true;error=null;notice=null;try{action();refresh++}catch(e:CancellationException){throw e}catch(e:Exception){if(e is LedgerException&&e.accessLost)onAccessLost()else error=e.message}finally{busy=false}}}
  val active=ledgers.find{it.id==selected}
  if(active!=null){
-  key(active.id,active.role){LedgerScreen(api,user,active,onWorkspace={lastLedger=active.id;selected=null;showAccount=false},onAccount={lastLedger=active.id;selected=null;showAccount=true},authBusy=authBusy,authError=authError,onLogout=onLogout,onManage=onManage,onAccessLost=onAccessLost)}
+  key(active.id,active.role){LedgerScreen(api,user,active,views.getOrPut(active.id) { LedgerViewState() },onWorkspace={lastLedger=active.id;selected=null;showAccount=false},onAccount={lastLedger=active.id;selected=null;showAccount=true},authBusy=authBusy,authError=authError,onLogout=onLogout,onManage=onManage,onAccessLost=onAccessLost)}
   return
  }
  SettingsPage{

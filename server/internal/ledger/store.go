@@ -253,6 +253,10 @@ func scanRecord(row interface{ Scan(...any) error }) (Transaction, error) {
 	return t, err
 }
 func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
+	return s.DashboardWithFilters(month, query, page, DashboardFilters{})
+}
+
+func (s *Store) DashboardWithFilters(month, query string, page int, filters DashboardFilters) (Dashboard, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	today := time.Now().In(time.FixedZone("Asia/Shanghai", 8*3600)).Format("2006-01-02")
@@ -266,14 +270,27 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 	if page < 1 || page > 100000 || len([]rune(query)) > 100 {
 		return d, problem("invalid", "分页或搜索条件无效")
 	}
-	var err error
-	if err = s.authorize(s.db, false); err != nil {
+	d.FilterOptions = DashboardFilterOptions{Accounts: []DashboardAccountOption{}, Categories: []string{}}
+	if err := validateDashboardFilters(filters, query); err != nil {
 		return d, err
 	}
-	if d.Version, err = s.version(); err != nil {
+	tx, err := s.db.Begin()
+	if err != nil {
 		return d, err
 	}
-	rows, err := s.db.Query("SELECT DISTINCT substr(occurred_on,1,7) FROM transactions WHERE ledger_id=? AND deleted_at IS NULL ORDER BY 1 DESC", s.ledgerID)
+	defer tx.Rollback()
+	if err = s.authorize(tx, false); err != nil {
+		return d, err
+	}
+	if err = tx.QueryRow("SELECT version FROM ledgers WHERE id=?", s.ledgerID).Scan(&d.Version); err != nil {
+		return d, err
+	}
+	accountMatches, options, err := s.dashboardAccountOptions(tx, month, filters.AccountID)
+	if err != nil {
+		return d, err
+	}
+	d.FilterOptions.Accounts = options
+	rows, err := tx.Query("SELECT DISTINCT substr(occurred_on,1,7) FROM transactions WHERE ledger_id=? AND deleted_at IS NULL ORDER BY 1 DESC", s.ledgerID)
 	if err != nil {
 		return d, err
 	}
@@ -295,7 +312,7 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 		d.Months = append(d.Months, m)
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(d.Months)))
-	rows, err = s.db.Query("SELECT "+transactionColumns+" FROM transactions WHERE ledger_id=? AND substr(occurred_on,1,7)=? AND deleted_at IS NULL ORDER BY occurred_on DESC,created_at DESC,id", s.ledgerID, month)
+	rows, err = tx.Query("SELECT "+transactionColumns+" FROM transactions WHERE ledger_id=? AND substr(occurred_on,1,7)=? AND deleted_at IS NULL ORDER BY occurred_on DESC,created_at DESC,id", s.ledgerID, month)
 	if err != nil {
 		return d, err
 	}
@@ -304,6 +321,7 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 	sources := map[string]bool{}
 	categories := map[string]int64{}
 	categoryRefunds := map[string]int64{}
+	filterCategories := map[string]bool{}
 	query = strings.ToLower(strings.TrimSpace(query))
 	for rows.Next() {
 		t, e := scanRecord(rows)
@@ -317,13 +335,16 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 			}
 			refunds += minor
 			categoryRefunds[t.Category] += minor
-		} else if minor > 0 {
+		} else if t.Type == "income" {
+			if minor <= 0 {
+				return d, problem("overflow", "统计金额超出可表示范围")
+			}
 			if income > math.MaxInt64-minor {
 				return d, problem("overflow", "统计金额超出可表示范围")
 			}
 			income += minor
-		} else {
-			if expense > math.MaxInt64+minor {
+		} else if t.Type == "expense" {
+			if minor >= 0 || minor == math.MinInt64 || expense > math.MaxInt64+minor {
 				return d, problem("overflow", "统计金额超出可表示范围")
 			}
 			expense -= minor
@@ -331,7 +352,9 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 		}
 		d.TotalCount++
 		sources[t.Source] = true
-		if query == "" || strings.Contains(strings.ToLower(strings.Join([]string{t.Merchant, t.Category, t.Source, t.Account, t.Note}, "\n")), query) {
+		filterCategories[t.Category] = true
+		matches := (filters.Type == "" || t.Type == filters.Type) && (filters.Category == "" || t.Category == filters.Category) && (filters.AccountID == "" || accountMatches[t.ID])
+		if matches && (query == "" || strings.Contains(strings.ToLower(strings.Join([]string{t.Merchant, t.Category, t.Source, t.Account, t.Note}, "\n")), query)) {
 			if d.FilteredCount >= (page-1)*PageSize && d.FilteredCount < page*PageSize {
 				d.Transactions = append(d.Transactions, t)
 			}
@@ -341,6 +364,10 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 	if err = rows.Err(); err != nil {
 		return d, err
 	}
+	for name := range filterCategories {
+		d.FilterOptions.Categories = append(d.FilterOptions.Categories, name)
+	}
+	sort.Strings(d.FilterOptions.Categories)
 	d.IncomeMinor = strconv.FormatInt(income, 10)
 	d.GrossExpenseMinor = strconv.FormatInt(expense, 10)
 	d.RefundMinor = strconv.FormatInt(refunds, 10)
@@ -355,8 +382,8 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 		d.Categories = append(d.Categories, CategoryTotal{Name: name, AmountMinor: strconv.FormatInt(minor-categoryRefunds[name], 10), GrossExpenseMinor: strconv.FormatInt(minor, 10), RefundMinor: strconv.FormatInt(categoryRefunds[name], 10)})
 	}
 	sort.Slice(d.Categories, func(i, j int) bool {
-		a, _ := strconv.ParseInt(d.Categories[i].AmountMinor, 10, 64)
-		b, _ := strconv.ParseInt(d.Categories[j].AmountMinor, 10, 64)
+		a, _ := strconv.ParseInt(d.Categories[i].GrossExpenseMinor, 10, 64)
+		b, _ := strconv.ParseInt(d.Categories[j].GrossExpenseMinor, 10, 64)
 		if a == b {
 			return d.Categories[i].Name < d.Categories[j].Name
 		}
