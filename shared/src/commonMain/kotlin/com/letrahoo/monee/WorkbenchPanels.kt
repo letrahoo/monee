@@ -125,7 +125,7 @@ internal fun MonthToolbar(month: String, today: String, disabled: Boolean, onMon
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun MonthSelectionPanel(
-    report: AnnualReport, selectedMonth: String, loading: Boolean,
+    report: AnnualReport, selectedMonth: String, loading: Boolean, disabled: Boolean = false,
     onMonth: (String) -> Unit, onYear: (Int) -> Unit, onClose: () -> Unit,
 ) {
     var gridStart by remember(report.year) { mutableStateOf(yearGridStart(report.year)) }
@@ -136,14 +136,14 @@ internal fun MonthSelectionPanel(
         Text("选择月份 · ${report.year}年", color = Ink, style = MaterialTheme.typography.h6)
         if (loading) Text("正在加载年度数据…", color = Ink)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            WorkbenchChoice("上一组年份", false, !loading && gridStart > 1900) { gridStart = maxOf(1900, gridStart - 12) }
-            WorkbenchChoice("下一组年份", false, !loading && gridStart + 12 <= 2200) { gridStart += 12 }
-            WorkbenchChoice("回到当前月", selectedMonth == current, !loading && current != null) { current?.let(onMonth) }
-            WorkbenchChoice("收起月份选择", false, !loading) { onClose() }
+            WorkbenchChoice("上一组年份", false, !disabled && gridStart > 1900) { gridStart = maxOf(1900, gridStart - 12) }
+            WorkbenchChoice("下一组年份", false, !disabled && gridStart + 12 <= 2200) { gridStart += 12 }
+            WorkbenchChoice("回到当前月", selectedMonth == current, !disabled && current != null) { current?.let(onMonth) }
+            WorkbenchChoice("收起月份选择", false, !disabled) { onClose() }
         }
         Text("年份 ${gridStart}–${yearGrid(gridStart).last()}", color = Ink)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            yearGrid(gridStart).forEach { year -> WorkbenchChoice("${year}年", year == report.year, !loading) { onYear(year) } }
+            yearGrid(gridStart).forEach { year -> WorkbenchChoice("${year}年", year == report.year, !disabled) { onYear(year) } }
         }
         Text("全年收入 ${workbenchMoney(report.incomeMinor)} · 净支出 ${workbenchMoney(report.expenseMinor)}", color = Ink)
         Text("全年结余 ${workbenchMoney(report.surplusMinor)}（收入减净支出，非账户余额）", color = Ink)
@@ -152,7 +152,7 @@ internal fun MonthSelectionPanel(
             slots.forEachIndexed { index, summary ->
                 val key = "${report.year}-${(index + 1).toString().padStart(2, '0')}"
                 OutlinedButton(
-                    onClick = { onMonth(key) }, enabled = !loading && validWorkbenchMonth(key),
+                    onClick = { onMonth(key) }, enabled = !disabled && validWorkbenchMonth(key),
                     modifier = Modifier.widthIn(min = 156.dp).heightIn(min = 96.dp).semantics { selected = key == selectedMonth },
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Ink, backgroundColor = if (key == selectedMonth) Pine.copy(alpha = 0.12f) else Color.Transparent),
                 ) {

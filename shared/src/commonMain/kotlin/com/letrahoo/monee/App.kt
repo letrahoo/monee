@@ -11,6 +11,7 @@ import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.graphics.Color
@@ -148,10 +149,17 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,viewStat
     }
 
     fun monthToolbarMounted() = panel!="review"&&viewState.tab!=WorkbenchTab.Mine&&validWorkbenchMonth(effectiveMonth)
-    LaunchedEffect(pendingMonthFocus,viewState.tab,panel,effectiveMonth,working,loading) {
-        if(pendingMonthFocus&&monthToolbarMounted()&&!working&&!loading){
-            withFrameNanos { }
-            if(monthToolbarMounted()&&!working&&!loading){monthFocus.requestFocus();pendingMonthFocus=false}
+    // A navigation/editor change expires an earlier close-panel focus intent.
+    LaunchedEffect(viewState.tab,panel) { pendingMonthFocus=false }
+    LaunchedEffect(pendingMonthFocus,viewState.tab,panel,effectiveMonth,working,viewState.monthPanel) {
+        if(viewState.monthPanel){pendingMonthFocus=false;return@LaunchedEffect}
+        if(pendingMonthFocus&&monthToolbarMounted()&&!working){
+            // Bounded frame opportunities, not a polling loop or a guessed delay.
+            repeat(2) {
+                withFrameNanos { }
+                if(!pendingMonthFocus||viewState.monthPanel||!monthToolbarMounted()||working)return@LaunchedEffect
+                if(monthFocus.requestFocus(FocusDirection.Enter)){pendingMonthFocus=false;return@LaunchedEffect}
+            }
         }
     }
     fun closeMonthPanel(){viewState.monthPanel=false;pendingMonthFocus=true}
@@ -330,13 +338,13 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,viewStat
                         trailingIcon={if(query.isNotEmpty())TextButton(onClick={viewState.search("");selectedID=null}){Text("清除")}})
                 }
                 if(panel!="review" && viewState.tab!=WorkbenchTab.Mine && validWorkbenchMonth(effectiveMonth)) {
-                    MonthToolbar(effectiveMonth,lastToday,working||loading,
-                        onMonth=::chooseMonth,onOpen={viewState.monthPanel=!viewState.monthPanel},monthFocus=monthFocus)
+                    MonthToolbar(effectiveMonth,lastToday,working,
+                        onMonth=::chooseMonth,onOpen={pendingMonthFocus=false;viewState.monthPanel=!viewState.monthPanel},monthFocus=monthFocus)
                     if(viewState.monthPanel) {
                         if(annualLoading)LinearProgressIndicator(Modifier.fillMaxWidth())
                         annualError?.let{Text(it,color=MaterialTheme.colors.error);TextButton(onClick={refresh++}){Text("重试年度数据")}}
                         annual?.takeIf{it.year.toString()==reportYear}?.let { report ->
-                            MonthSelectionPanel(report,effectiveMonth,annualLoading,
+                            MonthSelectionPanel(report,effectiveMonth,annualLoading,disabled=working,
                                 onMonth=::chooseMonth,
                                 onYear={chooseMonth("$it-${effectiveMonth.takeLast(2)}")},
                                 onClose=::closeMonthPanel)
