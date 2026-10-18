@@ -1,5 +1,7 @@
 # M11：受保护的 schema5 持久化基础
 
+本文保留392ae91阶段范围；后续[私有确认/撤回事务核心](expense-pair-private-lifecycle.md)已新增，但没有正常入口或有效财务投影，本文启动门禁仍保留。下文“无Store方法”指原基础阶段，不否认后续未导出的metadata方法存在。
+
 ## 范围与版本链
 
 按用户已确定的显式PR14/schema4开发链，从b08c9ac基线增加唯一005迁移与SchemaVersion5，004原文不变。不从main3直接跳5、不修改现有交易/来源/分录，也不新增确认/撤回Store方法、HTTP或UI入口。

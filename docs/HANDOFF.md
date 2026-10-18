@@ -1,6 +1,8 @@
 # 开发交接
 
-更新：2026-10-18。当前在已选schema4链上新增005/schema5持久化基础，见[三表与启动门禁](plans/expense-pair-schema5-foundation.md)、[实际验证及未覆盖](verification/expense-pair-schema5-foundation-2026-10-18.md)。空5库保留原账务；三表任一已有数据或结构未知则Open拒绝，尚无确认/撤回Store/API/UI，不把启动保护说成运行时外部writer防御。未来需完整有效读取/旧写保护/生命周期与独占升级同时解除门禁；M11和正常双端未验收，不自动合并部署。
+更新：2026-10-18。当前接续schema5增加[未开放入口的确认/撤回事务核心](plans/expense-pair-private-lifecycle.md)及[实测边界](verification/expense-pair-private-lifecycle-2026-10-18.md)。只有未导出metadata方法及严格来源/持久快照检查；没有HTTP/UI、有效财务投影或旧writer guard激活，原账务与交易版本不改、毛支出仍两份。Open非空关系门禁保留，必须完整effective读取/两腿posting/旧写与undo保护及独占升级一并到位才开放。M11仍进行中，正常双端未验收，不自动merge/deploy。
+
+R14历史基础：在已选schema4链上新增005/schema5持久化基础，见[三表与启动门禁](plans/expense-pair-schema5-foundation.md)、[实际验证及未覆盖](verification/expense-pair-schema5-foundation-2026-10-18.md)。空5库保留原账务；三表任一已有数据或结构未知则Open拒绝，尚无确认/撤回Store/API/UI，不把启动保护说成运行时外部writer防御。未来需完整有效读取/旧写保护/生命周期与独占升级同时解除门禁；M11和正常双端未验收，不自动合并部署。
 
 R13历史基线：用户已选显式基于PR14/schema4开发M11后续迁移；当前分支从固定2135fe0建立，并选取PR17/31066f1来源冻结与PR20/119e8fa纯facts/pair核心，依赖不是main已有功能。见[开发依赖链与本片边界](plans/same-account-decision-stack.md)。主干仍72f2a37/schema3，PR base为feat/internal-transfers而非main；不自动合并、部署或切共享入口。
 
