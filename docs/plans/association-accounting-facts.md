@@ -2,7 +2,9 @@
 
 ## 范围
 
-本片从已合并main `72f2a37` 独立实现纯Go内部函数，作为后续决策层可用的结构校验基础。**不是PR19推荐方案的政策批准，不实现planner/effects、同事件确认、统计扣减或撤回。** 不隐式依赖PR18客户端、PR17源冻结或PR14/schema4；不新增DB/Store/API/UI/DDL入口，不修改现有insert/Correct/Refund规则。
+本文描述4d57251开始的政策中立单笔facts层；本分支另新增[用户限定范围下的pair假设毛额投影](association-expense-pair-projection.md)。二者仍未接入业务入口，不将hypothetical计算当写许可。
+
+本片从已合并main `72f2a37` 独立实现纯Go内部函数，作为后续决策层可用的结构校验基础。**单笔facts本身不是PR19推荐方案的政策批准，不实现可提交的决策planner/effects、同事件确认、统计扣减或撤回；新增pair假设计算遵循用户另已选定的D4范围，但不批准其余未决条件。** 不隐式依赖PR18客户端、PR17源冻结或PR14/schema4；不新增DB/Store/API/UI/DDL入口，不修改现有insert/Correct/Refund规则。
 
 函数只证明调用方**给定输入内部一致**，不能证明数据确实存在于数据库、来自当前授权请求、属于同一读取快照、仍然active或对应客户端选中target。未来Store必须在自己的授权事务内按请求目标取可信tx/posting/account，不得接收客户端自报这些facts后据此授权。普通来源标签、记账账户UUID均不证明现实银行/钱包身份。
 

@@ -18,8 +18,13 @@ func accountingFactsFromTempDB(t *testing.T, s *Store, id string) associationExp
 		t.Fatal(e)
 	}
 	defer tx.Rollback()
+	return accountingFactsFromTempTx(t, tx, id)
+}
+
+func accountingFactsFromTempTx(t *testing.T, tx *sql.Tx, id string) associationExpenseAccountingInput {
+	t.Helper()
 	var in associationExpenseAccountingInput
-	e = tx.QueryRow(`SELECT ledger_id,id,version,kind,currency,amount_minor,typeof(amount_minor),amount_minor FROM transactions WHERE id=?`, id).Scan(&in.LedgerID, &in.TransactionID, &in.Version, &in.Kind, &in.Currency, &in.AmountMinor, &in.AmountStorageClass, &in.AmountRaw)
+	e := tx.QueryRow(`SELECT ledger_id,id,version,kind,currency,amount_minor,typeof(amount_minor),amount_minor FROM transactions WHERE id=?`, id).Scan(&in.LedgerID, &in.TransactionID, &in.Version, &in.Kind, &in.Currency, &in.AmountMinor, &in.AmountStorageClass, &in.AmountRaw)
 	if e != nil {
 		t.Fatal(e)
 	}
