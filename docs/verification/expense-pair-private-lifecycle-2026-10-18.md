@@ -21,6 +21,12 @@
 
 末阶段idempotency trigger故障使confirm/withdraw的root/member/revision/audit/ledger/key全部回滚，同失败key可重试；两个独立预先打开的连接竞争只有一个完整获胜者。原所有非元数据表保持。私有metadata写后实际Dashboard仍两笔2468，不当金融只计一次已实现；正常Open仍拒绝，锁定门禁没被提前移除。
 
+## 远端CI发现的旧隐私测试误报机制
+
+d558347的Linux Build39145284871/job117727755537在Test Go失败：旧TestImportRedactionPreviewIsReadOnlyPrivateAndStable对整个payload做短字符串1899黑名单。保留该失败，不重跑CI掩盖；原始日志已核对，但未捕获远端当次具体payload/token，不能断言具体哪一个匿名token碰撞。
+
+用固定合成ledger scope预计算合法merchant HMAC含1899，767沿原测试路径确定性红在同一短year断言，fixture/FK/count正常，证明旧oracle确会误报。test-only修复保留全部原敏感值检查，改完整非法日期1899-09-15并逐条typed Date锁2026-09-15/2026-09-13及非法源行排除原因；还精确锁已知安全MerchantRef含1899，避免依赖随机再现。未改脱敏生产逻辑，不降低资格/隐私规则。768目标race绿1.756秒，修后769完整Go race-count1/vet/diff绿（ledger54.745秒），修后770fresh共享/Web/Mac再次成功1分24秒、68任务全执行，实际JVM44测试零失败/跳过。独立只读review无P1/P2。修复提交需独立新CI，不继承d558或392结果。
+
 ## 全量检查与未完成
 
 最终758全Go race-count1/vet/diff实际成功（ledger56.497秒），包括16项新顶层生命周期测试。fresh759共享/Web/Mac成功1分30秒、68任务全部执行；已保存完整本轮日志确认时间/任务数，JVM报告44测试零失败/跳过，不沿用旧计时或继承392 CI。正常登录双端affected业务未验收；当前更不存在公开确认/撤回路径。后续完整effective交易/两腿posting/所有财务读取、旧writer及导入duplicate-link/undo保护和独占升级必须同时接齐才能解除门禁/开放入口。

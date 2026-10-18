@@ -22,6 +22,17 @@ func redactionProjector(t *testing.T) *redaction.Projector {
 
 func TestImportRedactionPreviewIsReadOnlyPrivateAndStable(t *testing.T) {
 	s := testStore(t)
+	// Deterministic valid merchant HMAC contains the hex fragment 1899. A global
+	// year-substring oracle must not confuse this opaque alias with a date.
+	fixedScope := "synthetic-redaction-date-token-34"
+	changed, err := s.db.Exec("UPDATE ledgers SET id=? WHERE id=?", fixedScope, s.ledgerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := changed.RowsAffected(); err != nil || rows != 1 {
+		t.Fatal("Expected exactly one empty fixture ledger", rows, err)
+	}
+	s.ledgerID = fixedScope
 	invalidAmount := strings.Replace(strings.Replace(nativeExpense, "12.34", "1.001", 1), "pay-1", "pay-bad", 1)
 	invalidDate := strings.Replace(strings.Replace(nativeExpense, "2026-09-15", "1899-09-15", 1), "pay-1", "pay-date", 1)
 	raw := nativeHeader + nativeExpense + nativeRefund + invalidAmount + invalidDate
@@ -39,19 +50,27 @@ func TestImportRedactionPreviewIsReadOnlyPrivateAndStable(t *testing.T) {
 		t.Fatal("lost source positions", preview.Excluded)
 	}
 	encoded := string(preview.Payload)
-	for _, forbidden := range []string{"private-wallet", "13800000000", "合成咖啡店", "合成退款商户", "早餐", "退货", "银行卡A", "pay-1", "order-1", "10:20:30", "alipay.csv", p.ID, "1.001", "1899"} {
+	for _, forbidden := range []string{"private-wallet", "13800000000", "合成咖啡店", "合成退款商户", "早餐", "退货", "银行卡A", "pay-1", "order-1", "10:20:30", "alipay.csv", p.ID, "1.001", "1899-09-15"} {
 		if strings.Contains(encoded, forbidden) {
 			t.Errorf("leaked private/invalid field %q", forbidden)
 		}
 	}
 	var payload struct {
-		Records []struct{ Date, AmountMinor, Direction, Source, Currency string }
+		Records []struct{ Date, AmountMinor, Direction, Source, Currency, MerchantRef string }
 	}
 	if err := json.Unmarshal(preview.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
 	if len(payload.Records) != 2 || payload.Records[0].AmountMinor != "1234" || payload.Records[0].Direction != "expense" || payload.Records[1].Direction != "unknown" {
 		t.Fatal("altered financial evidence", payload)
+	}
+	// Validate dates as dates, not arbitrary hex fragments inside opaque refs.
+	if payload.Records[0].Date != "2026-09-15" || payload.Records[1].Date != "2026-09-13" || preview.Excluded[1].Reason != "交易日期无效" {
+		t.Fatal("Invalid source date escaped exclusion or valid dates changed", payload, preview.Excluded)
+	}
+	const collisionAlias = "r1_aa5ac45b189946eabfb60fc1e2d3a02d0714773b2b05bb7b243198f2d8d6b9e2"
+	if payload.Records[0].MerchantRef != collisionAlias || !strings.Contains(collisionAlias, "1899") {
+		t.Fatal("Deterministic safe-token collision fixture changed", payload.Records[0].MerchantRef)
 	}
 	again, err := s.ImportRedactionPreview(p.ID, projector)
 	if err != nil || !bytes.Equal(preview.Payload, again.Payload) {
