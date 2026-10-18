@@ -7,6 +7,7 @@ import (
 )
 
 func (a API) registerReviewQueue(mux *http.ServeMux) {
+	a.registerReviewItemMetadata(mux)
 	mux.HandleFunc("GET /api/v1/review-queue", func(w http.ResponseWriter, r *http.Request) {
 		store, ok := a.ledgerForRequest(w, r)
 		if !ok {

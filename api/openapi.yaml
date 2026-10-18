@@ -2,7 +2,7 @@
 openapi: 3.1.0
 info:
   title: Monee Local Ledger API
-  version: 1.6.0
+  version: 1.7.0
   description: Unified product users with explicitly linked Google/GitHub identities.
     System admission is separate from ledger ownership/editor/viewer memberships.
     All data access is enforced by Go. Feishu is reserved for a future provider adapter.
@@ -228,6 +228,48 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ReviewQueue'}
         default: {$ref: '#/components/responses/Error'}
+  "/api/v1/imports/{id}/review-items/{line}/metadata":
+    get:
+      operationId: getReviewItemSourceMetadata
+      description: |
+        Read-only retained native-source facts for one pending source occurrence.
+        Requires current admission and ledger membership on every request; viewers
+        may read. This is NOT decision eligibility or permission to book a row.
+        No confirm/ignore/withdraw action exists in this contract. Full retained
+        snapshots are inspected without reparsing or rewriting them. Unknown,
+        incomplete, inconsistent, special, linked, failed or undone evidence never
+        grants a financial action. Display reason and normalized expense/category
+        are not used as proof that an original source was ordinary.
+        The old review queue and its count semantics are unchanged.
+      parameters:
+      - in: header
+        name: X-Monee-Ledger
+        description: Explicit ledger selection; omission allowed only for a single membership.
+        schema: {type: string}
+      - in: path
+        name: id
+        required: true
+        schema: {type: string}
+      - in: path
+        name: line
+        required: true
+        description: Canonical positive decimal source line; signs and leading zeros are rejected. No query parameters are accepted.
+        schema: {type: integer, minimum: 1, maximum: 1000000}
+      responses:
+        '200':
+          description: |
+            Deterministic local source metadata with no allowed actions. A known
+            damaged or incomplete snapshot returns unknown and stable blockers,
+            not an invented ordinary record or raw corrupt payload. Source hashes
+            identify stored references, not reverified original file integrity.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReviewItemMetadata'}
+        '401': {$ref: '#/components/responses/ReviewMetadataError'}
+        '403': {$ref: '#/components/responses/ReviewMetadataError'}
+        '404': {$ref: '#/components/responses/ReviewMetadataError'}
+        '422': {$ref: '#/components/responses/ReviewMetadataError'}
+        default: {$ref: '#/components/responses/ReviewMetadataError'}
   "/api/v1/imports":
     get:
       operationId: listImports
@@ -1702,6 +1744,23 @@ components:
                 type: string
               message:
                 type: string
+    ReviewMetadataError:
+      description: |
+        401 unauthenticated; 403 current admission/membership denied; 404 import or
+        pending occurrence absent in this authorized ledger; 422 noncanonical line
+        or query parameters; 503 unavailable authentication. No source evidence is
+        returned. Unknown methods may use the existing plain-text 404/405 fallback.
+      headers:
+        Cache-Control:
+          schema: {type: string, const: no-store}
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code]
+            properties:
+              code: {type: string}
+              message: {type: string}
   schemas:
     Minor:
       type: string
@@ -1970,6 +2029,86 @@ components:
         filename: {type: string}
         line: {type: integer}
         disposition: {type: string, enum: [added, duplicate]}
+    ReviewItemMetadata:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, readOnly, actions, importId, line, batchState, classification, sourceRef, facts, blockers]
+      properties:
+        contractVersion: {type: integer, const: 1}
+        readOnly: {type: boolean, const: true}
+        actions:
+          type: array
+          maxItems: 0
+          items: {type: string}
+          description: Always an empty array. This source-evidence contract never enables a financial decision.
+        importId: {type: string}
+        line: {type: integer, minimum: 1, maximum: 1000000}
+        batchState:
+          type: string
+          enum: [preview, failed, committed, undone, unknown]
+          description: Containing batch state, never a per-row decision state. Corrupt state evidence is unknown, not implicitly committed.
+        classification:
+          type: string
+          enum: [ordinary_candidate, special, unknown]
+          description: |
+            Conservative source classification only. Even ordinary_candidate does
+            not authorize confirm; current deduplication and write-policy checks
+            are outside this read-only slice. Missing evidence is not ordinary.
+        sourceRef: {$ref: '#/components/schemas/ReviewItemSourceRef'}
+        facts: {$ref: '#/components/schemas/ReviewItemSourceFacts'}
+        blockers:
+          type: array
+          items: {$ref: '#/components/schemas/ReviewItemSourceBlocker'}
+    ReviewItemSourceRef:
+      type: object
+      additionalProperties: false
+      required: [ordinal, documentContentHash, parser, parserVersion, envelopeParserVersion]
+      properties:
+        ordinal:
+          type: integer
+          minimum: 0
+          description: Source occurrence ordinal; zero when reliable source evidence is unavailable. Not an economic event or transaction ID.
+        documentContentHash:
+          type: string
+          description: Retained original-document hash reference, not the import envelope hash and not a fresh verification of original bytes.
+        parser: {type: string}
+        parserVersion:
+          type: integer
+          minimum: 0
+          description: Retained ingestion document parser version; distinct from the persisted import envelope version.
+        envelopeParserVersion:
+          type: integer
+          minimum: 0
+          description: Persisted import parser/envelope version. Must not be equated with the document parser version.
+    ReviewItemSourceFacts:
+      type: object
+      additionalProperties: false
+      required: [direction, businessType, status, currency, sourceAccount, paymentTracePresent]
+      properties:
+        direction: {type: string}
+        businessType:
+          type: string
+          description: Source business type/category evidence, not the normalized transaction type or display reason.
+        status: {type: string}
+        currency: {type: string}
+        sourceAccount:
+          type: string
+          description: Source-account evidence visible only to authorized ledger members; not a redacted or model-safe value.
+        paymentTracePresent:
+          type: boolean
+          description: Whether a complete correctly scoped payment-trace identifier is present. The identifier itself is not exposed.
+    ReviewItemSourceBlocker:
+      type: object
+      additionalProperties: false
+      required: [code, path]
+      properties:
+        code:
+          type: string
+          enum: [snapshot_invalid, batch_failed, batch_event_invalid, batch_undone, linked_source, format_unsupported, pending_ambiguous, pending_conflict, document_missing, parser_unsupported, hash_missing_or_invalid, document_issues, ordinal_ambiguous, record_ambiguous, special_source, same_merchant_refund, source_account_invalid, raw_fields_conflict, currency_unsupported, date_invalid, amount_invalid, merchant_missing, identifier_conflict, payment_trace_missing_or_invalid, ordinary_source_unproven, fields_invalid]
+          description: Stable machine-readable source or batch blocker. Multiple independent blockers are retained, including special type plus invalid amount/date.
+        path:
+          type: string
+          description: Evidence field/path reference, not arbitrary source values, raw document text, payment trace or token.
     ReviewQueue:
       type: object
       required: [items, page, pageSize, totalCount, format]
