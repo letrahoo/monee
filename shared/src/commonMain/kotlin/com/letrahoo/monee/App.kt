@@ -304,6 +304,10 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                                                 sourceAccount=detail.preview.sourceAccount;nativeContent="";csv="";confirmedSimilar=false;panel="import"
                                             }},enabled=!working){Text("${link.filename} · 第 ${link.line} 行")} }
                                         }
+                                        if(item.type=="expense") AssociationCandidatesPanel(
+                                            api=api,userId=user.id,ledgerId=ledger.id,transaction=item,ledgerVersion=data.version,
+                                            enabled=!working&&!authBusy&&connectionError==null,onAccessLost=onAccessLost,
+                                        )
                                         if(ledger.role!="viewer") AnnotationEditor(item,working,onSave={category,note->runAction {
                                             api.annotate(ledger.id,item.id,AnnotationInput(item.version,category,note));notice="分类与备注已保存";refresh++;revisionID=""
                                         }})

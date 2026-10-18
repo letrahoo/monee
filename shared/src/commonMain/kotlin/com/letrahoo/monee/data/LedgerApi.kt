@@ -7,8 +7,11 @@ import io.ktor.http.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -27,8 +30,22 @@ internal expect suspend fun loadSession(base:String):String?
 internal expect suspend fun saveSession(base:String,token:String)
 internal expect suspend fun clearSession(base:String)
 
-class LedgerApi {
-    private val client = platformClient()
+class LedgerApi internal constructor(
+    private val client:HttpClient,
+    private val discover:suspend (HttpClient)->Connection,
+    private val sessionLoad:suspend (String)->String?,
+    private val sessionSave:suspend (String,String)->Unit,
+    private val sessionClear:suspend (String)->Unit,
+) {
+    constructor():this(platformClient(),{discoverConnection(it)},{loadSession(it)},{base,token->saveSession(base,token)},{clearSession(it)})
+    private val associationEpoch=MutableStateFlow(0L)
+    private data class AssociationReadStamp(val origin:String,val userId:String?,val generation:Long)
+    private data class RequestDestination(val origin:String,val token:String?,val csrf:String,val userId:String?,val generation:Long)
+    private fun invalidateAssociationReads() { associationEpoch.update { it+1L } }
+    private fun ensureAssociationStamp(stamp:AssociationReadStamp) {
+        if(associationEpoch.value!=stamp.generation || sessionOrigin!=stamp.origin || currentUserId!=stamp.userId || connection?.baseUrl!=stamp.origin)
+            throw LedgerException("登录或连接已变化，请刷新后重新排查","association_scope_changed")
+    }
     private var connection: Connection? = null
     private var accessToken: String? = null
     private val sessionMutex=Mutex()
@@ -46,31 +63,85 @@ class LedgerApi {
         return refundRequests.prepare(scope,originalId,input,newKey)
     }
 
-    fun reconnect() { connection = null }
-    fun close() { client.close() }
+    fun reconnect() { invalidateAssociationReads(); connection = null }
+    fun close() { invalidateAssociationReads(); client.close() }
 
-    private suspend fun destination():Connection = sessionMutex.withLock {
-        val next=connection ?: discoverConnection(client).also { connection=it }
-        if(sessionOrigin!=next.baseUrl) {
-            accessToken=loadSession(next.baseUrl);csrf="";currentUserId=null;sessionOrigin=next.baseUrl
+    private suspend fun destination():Connection {
+        while(true) {
+            val generation=associationEpoch.value
+            // Discovery may perform network I/O; never hold the session mutex.
+            val next=connection ?: discover(client)
+            val selected=sessionMutex.withLock {
+                if(associationEpoch.value!=generation)return@withLock null
+                val target=connection ?: next.also { connection=it }
+                if(sessionOrigin!=target.baseUrl) {
+                    invalidateAssociationReads()
+                    val loadingGeneration=associationEpoch.value
+                    val token=sessionLoad(target.baseUrl)
+                    if(associationEpoch.value!=loadingGeneration)return@withLock null
+                    accessToken=token;csrf="";currentUserId=null;sessionOrigin=target.baseUrl
+                }
+                target
+            }
+            if(selected!=null)return selected
         }
-        next
+    }
+
+    private suspend fun sessionStamp():AssociationReadStamp {
+        val generation=associationEpoch.value
+        try {
+            destination()
+            return sessionMutex.withLock {
+                val origin=sessionOrigin ?: throw LedgerException("请先刷新登录状态","association_scope_changed")
+                if(connection?.baseUrl!=origin)throw LedgerException("连接已变化，请刷新登录状态","association_scope_changed")
+                AssociationReadStamp(origin,currentUserId,associationEpoch.value)
+            }
+        } catch(e:CancellationException) { throw e
+        } catch(e:LedgerException) { throw e
+        } catch(e:Throwable) {
+            if(e !is Exception && !isPlatformNetworkFailure(e))throw e
+            sessionMutex.withLock {
+                if(associationEpoch.value==generation) { invalidateAssociationReads();connection=null }
+            }
+            throw LedgerException("连接失败，请确认服务已启动后重试。")
+        }
+    }
+
+    private suspend fun requestDestination(expectedStamp:AssociationReadStamp?):RequestDestination {
+        if(expectedStamp!=null)return sessionMutex.withLock {
+            ensureAssociationStamp(expectedStamp)
+            RequestDestination(expectedStamp.origin,accessToken,csrf,currentUserId,associationEpoch.value)
+        }
+        while(true) {
+            val target=destination()
+            val credentials=sessionMutex.withLock {
+                if(sessionOrigin!=target.baseUrl || connection?.baseUrl!=target.baseUrl)null
+                else RequestDestination(target.baseUrl,accessToken,csrf,currentUserId,associationEpoch.value)
+            }
+            if(credentials!=null)return credentials
+        }
     }
 
     private suspend fun request(path: String, method: HttpMethod = HttpMethod.Get, body: String? = null,
-                                parameters: Map<String, String> = emptyMap(), key: String? = null, ledgerId:String?=null): String {
+                                parameters: Map<String, String> = emptyMap(), key: String? = null, ledgerId:String?=null,
+                                expectedStamp:AssociationReadStamp?=null): String {
+        var started:RequestDestination?=null
+        val generationAtStart=associationEpoch.value
         try {
-            val destination = destination()
-            val response = client.request(destination.baseUrl + "/api/v1/" + path) {
+            val destination=requestDestination(expectedStamp)
+            started=destination
+            val response = client.request(destination.origin + "/api/v1/" + path) {
+                expectedStamp?.let { ensureAssociationStamp(it) }
                 this.method = method
-                accessToken?.let { header(HttpHeaders.Authorization, "Bearer $it") }
-                if (csrf.isNotEmpty()) header("X-Monee-CSRF",csrf)
+                destination.token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
+                if (destination.csrf.isNotEmpty()) header("X-Monee-CSRF",destination.csrf)
                 if (key != null) header("Idempotency-Key",key)
                 if (ledgerId != null) header("X-Monee-Ledger",ledgerId)
                 url { parameters.forEach { (name,value) -> this.parameters.append(name,value) } }
                 if (body != null) {contentType(ContentType.Application.Json);setBody(body)}
             }
             val text=response.bodyAsText()
+            expectedStamp?.let { ensureAssociationStamp(it) }
             if (!response.status.isSuccess()) {
                 val problem=runCatching {apiJson.decodeFromString<APIProblem>(text)}.getOrDefault(APIProblem(message="本地服务返回异常，请重试"))
                 throw LedgerException(problem.message,problem.code)
@@ -82,52 +153,95 @@ class LedgerApi {
             // Ktor Wasm wraps a rejected browser fetch in Error with a JsError cause.
             // Normalize only transport/ordinary exceptions; preserve fatal runtime errors.
             if (e !is Exception && !isPlatformNetworkFailure(e)) throw e
-            connection = null
+            sessionMutex.withLock {
+                // A late failure from A cannot disconnect a newer B session.
+                if(expectedStamp!=null)ensureAssociationStamp(expectedStamp)
+                val sent=started
+                if((sent!=null && associationEpoch.value==sent.generation && sessionOrigin==sent.origin && currentUserId==sent.userId) || (sent==null && associationEpoch.value==generationAtStart)) {
+                    invalidateAssociationReads()
+                    connection=null
+                }
+            }
             throw LedgerException("连接失败，请确认服务已启动后重试。")
         }
     }
 
     suspend fun authState(): AuthState {
-        val origin=destination().baseUrl
-        val tokenAtStart=accessToken
-        val state=apiJson.decodeFromString<AuthState>(request("auth/me"))
-        currentUserId=state.user?.id
-        csrf=state.csrfToken
+        val stamp=sessionStamp()
+        val state=apiJson.decodeFromString<AuthState>(request("auth/me",expectedStamp=stamp))
         sessionMutex.withLock {
-            if(state.user==null&&accessToken==tokenAtStart) {
+            ensureAssociationStamp(stamp)
+            if(currentUserId!=state.user?.id)invalidateAssociationReads()
+            currentUserId=state.user?.id
+            csrf=state.csrfToken
+            if(state.user==null) {
+                val hadToken=accessToken!=null
                 accessToken=null
-                if(tokenAtStart!=null)clearSession(origin)
+                if(hadToken)sessionClear(stamp.origin)
             }
         }
         return state
     }
     suspend fun login(provider:String,intent:String="login") {
+        invalidateAssociationReads()
+        val stamp=sessionStamp()
         val proof=loginProof()
-        val flow=apiJson.decodeFromString<LoginFlow>(request("auth/start",HttpMethod.Post,apiJson.encodeToString(LoginStart(provider,loginClient,proof.challenge,intent))))
-        val base=connection?.baseUrl ?: throw LedgerException("本地连接已失效")
+        val flow=apiJson.decodeFromString<LoginFlow>(request("auth/start",HttpMethod.Post,apiJson.encodeToString(LoginStart(provider,loginClient,proof.challenge,intent)),expectedStamp=stamp))
+        val base=stamp.origin
         if (!flow.url.startsWith(base+"/auth/begin?ticket=")) throw LedgerException("无效的登录地址")
         openLoginURL(flow.url)
         if(loginClient=="desktop") withTimeout(600_000) {
             while(true) {
                 delay(2000)
-                val result=apiJson.decodeFromString<LoginResult>(request("auth/native/poll",HttpMethod.Post,apiJson.encodeToString(LoginPoll(flow.id,proof.verifier))))
+                val result=apiJson.decodeFromString<LoginResult>(request("auth/native/poll",HttpMethod.Post,apiJson.encodeToString(LoginPoll(flow.id,proof.verifier)),expectedStamp=stamp))
                 when(result.status) {
                     "complete" -> {
                         if(result.token.isBlank())throw LedgerException("登录未完成")
-                        sessionMutex.withLock { accessToken=result.token;saveSession(base,result.token) }
+                        sessionMutex.withLock {
+                            ensureAssociationStamp(stamp)
+                            invalidateAssociationReads()
+                            accessToken=result.token;csrf="";currentUserId=null
+                            sessionSave(base,result.token)
+                        }
                         returnToApplication()
                         return@withTimeout
                     }
-                    "linked", "merge_required" -> { returnToApplication(); return@withTimeout }
+                    "linked", "merge_required" -> {
+                        sessionMutex.withLock { ensureAssociationStamp(stamp);invalidateAssociationReads() }
+                        returnToApplication(); return@withTimeout
+                    }
                     "failed" -> throw LedgerException("登录已取消或验证失败，请重试")
                 }
             }
         }
     }
     suspend fun logout() {
-        val base=destination().baseUrl
-        request("auth/logout",HttpMethod.Post,"{}")
-        sessionMutex.withLock { accessToken=null;csrf="";currentUserId=null;clearSession(base) }
+        // Invalidate at BEGIN, including when logout later fails or is cancelled.
+        invalidateAssociationReads()
+        val stamp=sessionStamp()
+        request("auth/logout",HttpMethod.Post,"{}",expectedStamp=stamp)
+        sessionMutex.withLock {
+            ensureAssociationStamp(stamp)
+            invalidateAssociationReads()
+            accessToken=null;csrf="";currentUserId=null;sessionClear(stamp.origin)
+        }
+    }
+
+    suspend fun associationCandidates(expectedUserId:String,ledgerId:String,id:String,page:Int):AssociationCandidates {
+        // Bind the caller before discovery can suspend. A read begun for A must
+        // not silently retry onto B, even if both origins report the same user ID.
+        val entryGeneration=associationEpoch.value
+        fun canonical(value:String)=value.isNotEmpty() && value.trim()==value && value.none { it.category==CharCategory.CONTROL }
+        if(!canonical(expectedUserId) || !canonical(ledgerId) || !canonical(id) || id=="." || id==".." || id.any { it in "/?#%\\\\" } || page !in 1..1_000_000)
+            throw LedgerException("相似提示请求无效","association_invalid")
+        val stamp=sessionStamp()
+        if(stamp.generation!=entryGeneration || stamp.userId!=expectedUserId)throw LedgerException("登录状态或连接已变化，请刷新后重新排查","association_scope_changed")
+        val raw=request("transactions/${id.encodeURLPathPart()}/association-candidates",parameters=mapOf("page" to page.toString()),ledgerId=ledgerId,expectedStamp=stamp)
+        val result=try { apiJson.decodeFromString<AssociationCandidates>(raw) }
+            catch(e:SerializationException) { throw LedgerException("相似提示响应无效，请刷新后重试","association_invalid") }
+        ensureAssociationStamp(stamp)
+        if(!validAssociationEnvelope(result,id,page))throw LedgerException("相似提示响应无效，请刷新后重试","association_invalid")
+        return result
     }
     suspend fun registeredUsers():RegisteredUsers = apiJson.decodeFromString(request("admin/users"))
     suspend fun setRegisteredUser(user:RegisteredUser) {request("admin/users/${user.id}",HttpMethod.Patch,apiJson.encodeToString(AccessChange(!user.enabled,user.version)))}

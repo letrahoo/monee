@@ -87,6 +87,7 @@ func (a API) Handler() http.Handler {
 	a.registerRefunds(mux)
 	a.registerImportUndo(mux)
 	a.registerReviewQueue(mux)
+	a.registerAssociationCandidates(mux)
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"status": "ok", "apiVersion": 1, "schemaVersion": storage.SchemaVersion, "instanceId": a.InstanceID, "serviceProtocol": a.ServiceProtocol})
 	})
