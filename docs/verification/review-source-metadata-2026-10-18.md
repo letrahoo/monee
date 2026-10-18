@@ -42,9 +42,25 @@
 - 验证机没有PyYAML，未安装依赖，改用已有系统YAML解析器检查；不作为产品失败。
 - Web编译存在既有Wasm体积/动态依赖警告，构建exit0；不称性能指标已验收。
 
+## 接续正常会话尝试与收尾
+
+- 正常受控Cookie有效，接口核对批准的独立合成账本ID/名称一致，仅一个成员账本；未复制Cookie、读取会话令牌或改身份/成员。
+- 两次尝试分别等来源字段、再明确等已启用导入控件后发指针操作，均未确认导入面板打开，结果及截图保留为失败/未完成。没有执行文件选择、预览或确认路径，不把它判成S1接口通过，也不直接归因为产品缺陷。
+- 正常已登录读取的合成10月基线为收入20.00、毛额18.00、退款3.00、净支出15.00、5笔；初始原生待核实数0。此基线仅用于限定操作范围，不等于全账本所有状态前后审计。
+- [全待核实来源夹具](../../fixtures/synthetic/review-metadata-pending.csv)包含三位小数退款与同商户原消费；[临时库回归](../../server/internal/ledger/review_item_metadata_fixture_test.go)验证两条均pending、退款special且保留amount_invalid、原消费unknown且same_merchant_refund、actions始终空、预览与重复读取不改财务。该测试通过不代替真实界面预览。
+- 临时切换的两路入口已恢复原服务，配置checksum与切换前相同；HTTPS/既有隧道Host均为原实例，匿名及无效Bearer401、HTTP308、其他站点认证保持。恢复核验后停止候选；浏览器正常退出，测试监听均无残留。
+
+## 远端CI发现与定位
+
+`e7c4016`的[Build run](https://github.com/letrahoo/monee/actions/runs/39100411908)中ARM/Linux成功，Intel Go检查成功，但共享JVM的 `DesktopRemoteTlsTest.realTlsChecksTrustAndHostnameAndNeverRedirectsCredentials` 抛 `HttpRequestTimeoutException`，35测试中1失败，尚未执行Mac打包。Compose/API与Web image也成功，即六项中的五项成功，不能称全绿。
+
+该测试及生产TLS代码/编排在此提交相对main未改；使用临时合成CA和两个loopback HttpsServer。日志仅能将失败缩小到未预期异常捕获的正向health或307/308请求之一，不能定位是哪一步，更不能断言必然无害环境瞬断。现有未指定executor的fixture有串行TLS握手阻塞风险，接续仅为fixture配置受控独立executor并清理、给正向调用阶段名/保留异常cause、always上传JVM XML/报告。生产信任/hostname/redirect/超时策略及全部安全断言保持，后续结果以新提交CI为准。
+
+加固后的本地定向TLS测试通过，再次完整Go race/vet、共享JVM全测试、Web生产与Mac分发任务通过（生产/打包输入未变化的任务为up-to-date）；新合成夹具的真实临时库race测试通过。workflow YAML检查确认报告always上传、无报告ignore，以及release仅下载`monee-*`发行产物、不混入诊断报告。独立审查及远端结果另列，不将这些本地结果写成Intel已修复。
+
 ## 必须继续保留的未验
 
-- 本轮没有正常已登录Web/Mac的S1读取实际操作；正常进程匿名401和临时库身份测试不能替代它。
+- 已有正常已登录Web范围核对，但没有成功形成S1原生pending并读取metadata的完整实际路径；Mac S1实际操作也未完成。匿名401、普通账本读取和临时库测试不能替代它。
 - 新接口没有客户端动作入口，不将旧分支界面/截图或人工金额读出当作此分支验收。
 - 当前正常Mac图形能力不可用，未申请/修改系统授权，未绕过或继续延期输入法诊断。
 - 仍需提交/PR当前HEAD CI及正常权限环境下相应运行证据，未完成项在PR/看板持续明确。没有合并main或部署正式环境。
