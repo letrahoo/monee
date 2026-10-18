@@ -1,6 +1,10 @@
 # 开发交接
 
-更新：2026-09-19。本文是换电脑、换会话或换开发者的入口。当前主干基线为 `9c04177`；后续提交见 Git 历史，当前未提交工作见下方接续章节。真实凭据、身份配置和账本不在仓库内。
+更新：2026-10-18。用户已明确首版不同记账账户不允许关联；本分支接续纯facts新增[同账户pair假设毛额投影](plans/association-expense-pair-projection.md)及[真实检查边界](verification/association-expense-pair-projection-2026-10-18.md)，同日同额、明确primary，输出仅假设pair gross，无实际财务作用/权限/Store或用户入口。此选择不批准其余D1/D2/D8；真实确认+撤回仍须同时交付和正常双端验收。
+
+单笔facts层从已合并main `72f2a37` 独立新增政策中立的纯Go支出分录事实校验，只有给定输入的一致性验证，无Store/DB/API/UI/DDL或现有财务行为接入。成功不证明权限、active、freshness、现实资金身份、同事件或关联资格；未来Store仍须自行授权并读取可信同快照事实。见[范围与结构规则](plans/association-accounting-facts.md)、[实跑与未覆盖项](verification/association-accounting-facts-2026-10-18.md)。
+
+PR18只读客户端、PR19推荐决策合同、PR17来源冻结与PR14转账均为独立草稿，不是本分支生产依赖。未据此批准其余未决条件（含D1/D2/D8），也未实现实际只计一次/确认撤回；M11整体及正常双端关联流程仍未验收，不自动合并部署。下方旧端口/部署/验收状态是历史记录，不作当前环境操作指令；真实凭据、身份配置和账本不在仓库内。
 
 ## 最新接续：Mac 测试域名连接（2026-09-19）
 
