@@ -10,6 +10,7 @@ import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.KeyStore
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.KeyManagerFactory
@@ -21,7 +22,18 @@ class DesktopRemoteTlsTest {
         val directory = Files.createTempDirectory("monee-synthetic-tls-")
         val server = HttpsServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val capture = HttpsServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val serverExecutor = Executors.newFixedThreadPool(2)
+        val captureExecutor = Executors.newFixedThreadPool(2)
         try {
+            // Keep failed TLS handshakes from serializing subsequent positive requests.
+            // This bounds fixture concurrency; it does not establish the cause of a CI timeout.
+            server.executor = serverExecutor
+            capture.executor = captureExecutor
+            suspend fun <T> tlsStage(name: String, request: suspend () -> T): T = try {
+                request()
+            } catch (cause: Exception) {
+                throw AssertionError("Synthetic TLS stage failed: $name", cause)
+            }
             val password = "synthetic-test-only" // Disposable test keystore, never a real credential.
             val keytool = Path.of(System.getProperty("java.home"), "bin", "keytool").toString()
             val storePath = directory.resolve("server.p12")
@@ -58,13 +70,18 @@ class DesktopRemoteTlsTest {
             val remote = DesktopRemote.configured(origin, ca.toString())!!
             val client = desktopHttpClient(Result.success(remote))
             try {
-                assertEquals(Connection(origin), desktopConnection(client, remote) { error("local fallback") })
+                val connection = tlsStage("trusted health") {
+                    desktopConnection(client, remote) { error("local fallback") }
+                }
+                assertEquals(Connection(origin), connection)
                 // The very same trusted certificate must fail for a hostname absent from its SAN.
                 assertFailsWith<Exception> { DesktopRemote("https://127.0.0.1:${server.address.port}", remote.trustManager).connect(client) }
                 for (status in listOf(307, 308)) {
-                    val response = client.post("$origin/redirect-$status") {
-                        header(HttpHeaders.Authorization, "Bearer synthetic-only")
-                        setBody("synthetic-proof-only")
+                    val response = tlsStage("redirect $status") {
+                        client.post("$origin/redirect-$status") {
+                            header(HttpHeaders.Authorization, "Bearer synthetic-only")
+                            setBody("synthetic-proof-only")
+                        }
                     }
                     assertEquals(HttpStatusCode.fromValue(status), response.status)
                 }
@@ -82,8 +99,17 @@ class DesktopRemoteTlsTest {
                 "-storepass", password, "-file", directory.resolve("expired.pem").toString())
             assertFailsWith<LedgerException> { DesktopRemote.configured(origin, directory.resolve("expired.pem").toString()) }
         } finally {
-            server.stop(0); capture.stop(0)
-            Files.walk(directory).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) } }
+            try {
+                server.stop(0)
+            } finally {
+                try {
+                    capture.stop(0)
+                } finally {
+                    serverExecutor.shutdownNow()
+                    captureExecutor.shutdownNow()
+                    Files.walk(directory).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) } }
+                }
+            }
         }
     }
 }

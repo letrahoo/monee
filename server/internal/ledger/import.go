@@ -43,7 +43,12 @@ func (s *Store) Preview(filename, text string) (Preview, error) {
 func (s *Store) preview(filename, text string, native *ingestion.Document) (Preview, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.authorize(s.db, true); err != nil {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Preview{}, err
+	}
+	defer tx.Rollback()
+	if err := s.authorize(tx, true); err != nil {
 		return Preview{}, err
 	}
 	p := Preview{Filename: filepath.Base(filename), Rows: []PreviewRow{}, Errors: []string{}}
@@ -52,6 +57,54 @@ func (s *Store) preview(filename, text string, native *ingestion.Document) (Prev
 	}
 	if len([]rune(p.Filename)) > 200 {
 		return p, problem("invalid", "文件名过长")
+	}
+	contentHash := hash(text)
+	parserVersion := 1
+	if native != nil {
+		parserVersion = 2
+	}
+	var previousJSON, storedFilename, storedRaw string
+	var committed, previousResult sql.NullString
+	var storedParserVersion int
+	lookup := func() error {
+		return tx.QueryRow(`SELECT id,filename,raw_csv,preview_json,committed_at,result_json,parser_version FROM imports WHERE ledger_id=? AND content_hash=?`, s.ledgerID, contentHash).Scan(&p.ID, &storedFilename, &storedRaw, &previousJSON, &committed, &previousResult, &storedParserVersion)
+	}
+	existing := false
+	if native != nil {
+		err = lookup()
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return p, err
+		}
+		existing = err == nil
+		if existing {
+			if storedRaw != text || hash(storedRaw) != contentHash || storedParserVersion != 2 || (previousResult.Valid && !committed.Valid) {
+				return Preview{}, nativePreviewEvidenceProblem()
+			}
+			state, stateErr := nativeEvidenceUndoState(tx, s.ledgerID, p.ID, committed.Valid)
+			if stateErr != nil {
+				return Preview{}, stateErr
+			}
+			if committed.Valid {
+				var original Preview
+				var result CommitResult
+				if !nativeEvidenceTimestamp(committed.String) || !previousResult.Valid || !nativeEvidenceDecode(previousResult.String, &result) || result.ImportID != p.ID || result.Added < 0 || result.Skipped < 0 || result.Pending < 0 || !nativeEvidenceDecode(previousJSON, &original) || original.ID != p.ID || original.Filename != storedFilename || !nativeEvidenceValid(original) {
+					return Preview{}, nativePreviewEvidenceProblem()
+				}
+				if err = nativeEvidenceCommittedRows(tx, s.ledgerID, original); err != nil {
+					return Preview{}, err
+				}
+				original.AlreadyCommitted = true
+				original.Undone = state == "undone"
+				return original, nil
+			}
+			var links int
+			if err = tx.QueryRow(`SELECT COUNT(*) FROM source_records sr JOIN imports i ON i.id=sr.import_id WHERE i.ledger_id=? AND i.id=?`, s.ledgerID, p.ID).Scan(&links); err != nil {
+				return p, err
+			}
+			if links != 0 {
+				return Preview{}, nativePreviewEvidenceProblem()
+			}
+		}
 	}
 	if native == nil {
 		p.Rows, p.Errors = parseCSV(text)
@@ -69,43 +122,46 @@ func (s *Store) preview(filename, text string, native *ingestion.Document) (Prev
 			p.Errors = append(p.Errors, fmt.Sprintf("第 %d 行：%s", issue.Line, issue.Message))
 		}
 	}
-	if len(p.Errors) > 0 {
-		if native != nil {
-			return s.retainFailedPreview(p, text)
+	if native == nil {
+		if len(p.Errors) > 0 {
+			return p, nil
 		}
-		return p, nil
-	}
-	var err error
-	if p.LedgerVersion, err = s.version(); err != nil {
-		return p, err
-	}
-	contentHash := hash(text)
-	parserVersion := 1
-	if native != nil {
-		parserVersion = 2
-	}
-	var previousJSON string
-	var committed sql.NullString
-	err = s.db.QueryRow("SELECT id,preview_json,committed_at FROM imports WHERE ledger_id=? AND content_hash=?", s.ledgerID, contentHash).Scan(&p.ID, &previousJSON, &committed)
-	if err == nil && committed.Valid {
-		err = json.Unmarshal([]byte(previousJSON), &p)
-		p.AlreadyCommitted = true
-		if err != nil {
+		err = lookup()
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return p, err
 		}
-		state, stateErr := s.importUndoState(s.db, p.ID)
-		p.Undone = state.State == "undone"
-		return p, stateErr
+		existing = err == nil
+		if existing && committed.Valid {
+			if err = json.Unmarshal([]byte(previousJSON), &p); err != nil {
+				return p, err
+			}
+			p.AlreadyCommitted = true
+			state, stateErr := s.importUndoState(tx, p.ID)
+			p.Undone = state.State == "undone"
+			return p, stateErr
+		}
 	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err = tx.QueryRow("SELECT version FROM ledgers WHERE id=?", s.ledgerID).Scan(&p.LedgerVersion); err != nil {
 		return p, err
 	}
 	if p.ID == "" {
 		p.ID = newID()
 	}
+	if native != nil && existing {
+		p, err = nativeEvidenceRefresh(previousJSON, p.ID, storedFilename, storedParserVersion, p)
+		if err != nil {
+			return Preview{}, err
+		}
+	}
+	// Source failures retain their original rows/questions without running the
+	// financial dedup projection, matching the first-preview behavior.
+	sourceFailed := len(p.Errors) > 0
 	seenIDs := map[string]Transaction{}
 	seenSimilar := map[string]bool{}
 	for index := range p.Rows {
+		if sourceFailed {
+			break
+		}
 		row := &p.Rows[index]
 		t := row.Record
 		key := identity(t)
@@ -117,10 +173,10 @@ func (s *Store) preview(filename, text string, native *ingestion.Document) (Prev
 				duplicate = previous
 				found = true
 			} else {
-				duplicate, err = scanRecord(s.db.QueryRow("SELECT "+transactionColumns+" FROM transactions WHERE ledger_id=? AND identity_key=?", s.ledgerID, key))
+				duplicate, err = scanRecord(tx.QueryRow("SELECT "+transactionColumns+" FROM transactions WHERE ledger_id=? AND identity_key=?", s.ledgerID, key))
 				if err == nil {
 					found = true
-					if err = s.db.QueryRow("SELECT fingerprint FROM transactions WHERE ledger_id=? AND id=?", s.ledgerID, duplicate.ID).Scan(&originalFingerprint); err != nil {
+					if err = tx.QueryRow("SELECT fingerprint FROM transactions WHERE ledger_id=? AND id=?", s.ledgerID, duplicate.ID).Scan(&originalFingerprint); err != nil {
 						return p, err
 					}
 				} else if !errors.Is(err, sql.ErrNoRows) {
@@ -145,7 +201,7 @@ func (s *Store) preview(filename, text string, native *ingestion.Document) (Prev
 			continue
 		}
 		var similarCount int
-		if err = s.db.QueryRow("SELECT COUNT(*) FROM transactions WHERE ledger_id=? AND similarity_key=? AND deleted_at IS NULL", s.ledgerID, similarity(t)).Scan(&similarCount); err != nil {
+		if err = tx.QueryRow("SELECT COUNT(*) FROM transactions WHERE ledger_id=? AND similarity_key=? AND deleted_at IS NULL", s.ledgerID, similarity(t)).Scan(&similarCount); err != nil {
 			return p, err
 		}
 		if similarCount > 0 || seenSimilar[similarity(t)] {
@@ -159,18 +215,31 @@ func (s *Store) preview(filename, text string, native *ingestion.Document) (Prev
 			seenIDs[key] = t
 		}
 	}
-	if len(p.Errors) > 0 {
-		if native != nil {
-			return s.retainFailedPreview(p, text)
-		}
+	if len(p.Errors) > 0 && native == nil {
 		return p, nil
 	}
-	_, err = s.db.Exec(`INSERT INTO imports(id,ledger_id,filename,content_hash,raw_csv,parser_version,ledger_version,preview_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)
- ON CONFLICT(ledger_id,content_hash) DO UPDATE SET ledger_version=excluded.ledger_version,preview_json=excluded.preview_json`, p.ID, s.ledgerID, p.Filename, contentHash, text, parserVersion, p.LedgerVersion, encode(p), now())
-	if err == nil && s.actorID != "" {
-		_, err = s.db.Exec("UPDATE imports SET created_by=COALESCE(created_by,?) WHERE id=? AND ledger_id=?", s.actorID, p.ID, s.ledgerID)
+	var saved sql.Result
+	if existing {
+		saved, err = tx.Exec(`UPDATE imports SET ledger_version=?,preview_json=? WHERE ledger_id=? AND id=? AND content_hash=? AND committed_at IS NULL`, p.LedgerVersion, encode(p), s.ledgerID, p.ID, contentHash)
+	} else {
+		saved, err = tx.Exec(`INSERT INTO imports(id,ledger_id,filename,content_hash,raw_csv,parser_version,ledger_version,preview_json,created_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(ledger_id,content_hash) DO NOTHING`, p.ID, s.ledgerID, p.Filename, contentHash, text, parserVersion, p.LedgerVersion, encode(p), now())
 	}
-	return p, err
+	if err != nil {
+		return p, err
+	}
+	changed, err := saved.RowsAffected()
+	if err != nil {
+		return p, err
+	}
+	if changed != 1 {
+		return Preview{}, nativePreviewEvidenceProblem()
+	}
+	if s.actorID != "" {
+		if _, err = tx.Exec(`UPDATE imports SET created_by=COALESCE(created_by,?) WHERE ledger_id=? AND id=? AND content_hash=? AND committed_at IS NULL`, s.actorID, s.ledgerID, p.ID, contentHash); err != nil {
+			return p, err
+		}
+	}
+	return p, tx.Commit()
 }
 
 func (s *Store) Commit(id string, version int64, confirmSimilar bool) (CommitResult, error) {
@@ -255,27 +324,4 @@ func (s *Store) Commit(id string, version int64, confirmSimilar bool) (CommitRes
 		return result, err
 	}
 	return result, tx.Commit()
-}
-
-// Failed native imports remain inspectable and can never be committed. Preserve
-// the original envelope and error locations without creating financial records.
-func (s *Store) retainFailedPreview(p Preview, raw string) (Preview, error) {
-	version, err := s.version()
-	if err != nil {
-		return p, err
-	}
-	p.LedgerVersion = version
-	err = s.db.QueryRow("SELECT id FROM imports WHERE ledger_id=? AND content_hash=?", s.ledgerID, hash(raw)).Scan(&p.ID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return p, err
-	}
-	if p.ID == "" {
-		p.ID = newID()
-	}
-	_, err = s.db.Exec(`INSERT INTO imports(id,ledger_id,filename,content_hash,raw_csv,parser_version,ledger_version,preview_json,created_at) VALUES(?,?,?,?,?,2,?,?,?)
-    ON CONFLICT(ledger_id,content_hash) DO UPDATE SET preview_json=excluded.preview_json,ledger_version=excluded.ledger_version WHERE imports.committed_at IS NULL`, p.ID, s.ledgerID, p.Filename, hash(raw), raw, version, encode(p), now())
-	if err == nil && s.actorID != "" {
-		_, err = s.db.Exec("UPDATE imports SET created_by=COALESCE(created_by,?) WHERE ledger_id=? AND id=?", s.actorID, s.ledgerID, p.ID)
-	}
-	return p, err
 }
