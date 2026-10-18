@@ -2,7 +2,7 @@
 openapi: 3.1.0
 info:
   title: Monee Local Ledger API
-  version: 1.6.0
+  version: 1.8.0
   description: Unified product users with explicitly linked Google/GitHub identities.
     System admission is separate from ledger ownership/editor/viewer memberships.
     All data access is enforced by Go. Feishu is reserved for a future provider adapter.
@@ -1567,6 +1567,57 @@ paths:
                 maxItems: 100
                 items: {$ref: '#/components/schemas/AnnotationRevision'}
         default: {$ref: '#/components/responses/Error'}
+  "/api/v1/transactions/{id}/association-candidates":
+    get:
+      operationId: transactionAssociationCandidates
+      description: |
+        Read-only current-transaction similarity hints within the selected ledger.
+        Requires current admission and ledger membership on every request; viewers
+        may read. Base and candidates must be active CNY records of current kind expense, without
+        known financial corrections or any related refund, including soft-deleted
+        refunds. Annotation-only revisions do not imply a financial correction.
+        Matches use exact current date, type, signed minor amount, currency and
+        merchant, with a different nonempty source display label. Labels are freely
+        supplied text, NOT verified bank/provider identity or proof of independent
+        sources. Current projection equality does NOT prove one economic event.
+        All candidates remain accounted for; this GET never changes totals, chooses
+        a winner, confirms, merges, deletes or grants a financial action. Original
+        source-occurrence identity, correction/reassociation and count-once behavior
+        are outside this slice. Each response is one read-only snapshot; clients
+        must discard accumulated pages if ledgerVersion changes between requests.
+        ledgerVersion is not a confirmation token. No unmerged metadata API is required.
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema: {type: string}
+      - in: header
+        name: X-Monee-Ledger
+        description: Explicit ledger selection; omission allowed only for a single membership.
+        schema: {type: string}
+      - in: query
+        name: page
+        required: false
+        description: |
+          Defaults to 1. Exactly one canonical decimal value from 1 to 1000000;
+          signs, empty values, leading zeros, overflow, repeated or unknown query
+          parameters are rejected after authentication and ledger authorization.
+          Page size is fixed at 50. Candidates have stable transaction-ID ordering.
+        schema: {type: integer, minimum: 1, maximum: 1000000, default: 1}
+      responses:
+        '200':
+          description: Current-value hints, possibly empty; never an association decision.
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AssociationCandidates'}
+        '401': {$ref: '#/components/responses/AssociationCandidatesError'}
+        '403': {$ref: '#/components/responses/AssociationCandidatesError'}
+        '404': {$ref: '#/components/responses/AssociationCandidatesError'}
+        '422': {$ref: '#/components/responses/AssociationCandidatesError'}
+        default: {$ref: '#/components/responses/AssociationCandidatesError'}
   "/api/v1/transactions/{id}/sources":
     get:
       operationId: transactionSources
@@ -1684,6 +1735,28 @@ components:
         this name is for the default origin. Follow Set-Cookie when using a different
         port.
   responses:
+    AssociationCandidatesError:
+      description: |
+        401 absent, invalid or expired session; 403 current admission, ledger
+        membership or origin denied; 404 base missing, deleted or outside the
+        authorized ledger; 422 invalid pagination or unsupported base (including
+        income/refund, any related refund, known financial correction or invalid
+        expense date/amount/currency). Unsupported base is NOT an empty candidate
+        set. Other failures use the normal API error status. Authentication and
+        ledger authorization precede parameter validation. Messages never echo
+        request values, raw evidence or internal diagnostics.
+      headers:
+        Cache-Control:
+          schema: {type: string, const: no-store}
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [code, message]
+            properties:
+              code: {type: string}
+              message: {type: string}
     Error:
       description: 400 malformed JSON; 401 absent/expired session or invalid native
         proof; 403 data access denied, admin role required, CSRF or origin rejected;
@@ -1703,6 +1776,74 @@ components:
               message:
                 type: string
   schemas:
+    AssociationCandidates:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, readOnly, basis, sourceRolesVerified, actions, ledgerVersion, base, items, page, pageSize, totalCount]
+      properties:
+        contractVersion: {type: integer, const: 1}
+        readOnly: {type: boolean, const: true}
+        basis: {type: string, const: current_transaction_similarity}
+        sourceRolesVerified: {type: boolean, const: false}
+        actions:
+          type: array
+          maxItems: 0
+          items: {type: string}
+          description: Always empty; no confirm, merge, delete or financial action exists.
+        ledgerVersion:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Snapshot version, not an association or confirmation token.
+        base: {$ref: '#/components/schemas/AssociationTransaction'}
+        items:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/AssociationCandidate'}
+        page: {type: integer, minimum: 1, maximum: 1000000}
+        pageSize: {type: integer, const: 50}
+        totalCount:
+          type: integer
+          minimum: 0
+          description: Number of eligible current-value hints, not confirmed duplicate economic events.
+    AssociationTransaction:
+      type: object
+      additionalProperties: false
+      required: [id, version, date, type, amountMinor, currency, merchant, sourceDisplay]
+      properties:
+        id: {type: string}
+        version: {type: integer, format: int64, minimum: 1}
+        date:
+          type: string
+          format: date
+          description: Current Gregorian transaction date between 1900 and 2200, not a proven bank settlement date.
+        type: {type: string, const: expense}
+        amountMinor:
+          type: string
+          pattern: '^-(?:[1-9][0-9]{0,11}|1000000000000)$'
+          description: Canonical signed integer fen between -1000000000000 and -1; never a JSON number.
+        currency: {type: string, const: CNY}
+        merchant: {type: string, minLength: 1, maxLength: 200}
+        sourceDisplay:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Unverified display text, NOT bank/provider identity or source-occurrence proof.
+    AssociationCandidate:
+      type: object
+      additionalProperties: false
+      required: [transaction, reasons]
+      properties:
+        transaction: {$ref: '#/components/schemas/AssociationTransaction'}
+        reasons:
+          type: array
+          minItems: 2
+          maxItems: 2
+          prefixItems:
+          - {type: string, const: current_projection_match}
+          - {type: string, const: different_source_display}
+          items: false
+          description: Exact fixed labels; similarity does not authorize linking or alter accounting.
     Minor:
       type: string
       pattern: "^-?[0-9]+$"
