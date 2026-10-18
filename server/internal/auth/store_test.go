@@ -2,6 +2,8 @@ package auth
 
 import (
 	"errors"
+	"fmt"
+	"github.com/letrahoo/monee/server/internal/storage"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -187,7 +189,7 @@ func TestConcurrentDuplicateAddAndValidation(t *testing.T) {
 }
 func TestAuthFutureSchemaIsRejected(t *testing.T) {
 	s := testStore(t)
-	if _, e := s.db.Exec("PRAGMA user_version=5"); e != nil {
+	if _, e := s.db.Exec(fmt.Sprintf("PRAGMA user_version=%d", storage.SchemaVersion+1)); e != nil {
 		t.Fatal(e)
 	}
 	if e := s.initialize(nil); e == nil {

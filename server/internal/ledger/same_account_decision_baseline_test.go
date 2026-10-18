@@ -6,11 +6,12 @@ import (
 	"testing"
 )
 
-// This is an isolated schema4 integration seam, not an association write test.
+// This is an isolated schema4-lineage integration seam after migration005,
+// not an association write test.
 func TestSameAccountDecisionBaselineTransferRefreshAndExpenseProjection(t *testing.T) {
 	s := testStore(t)
 	var schema int
-	if e := s.db.QueryRow("PRAGMA user_version").Scan(&schema); e != nil || schema != 4 {
+	if e := s.db.QueryRow("PRAGMA user_version").Scan(&schema); e != nil || schema != 5 {
 		t.Fatal(schema, e)
 	}
 	raw := []byte(nativeHeader + nativeExpense)
