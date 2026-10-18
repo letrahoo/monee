@@ -32,6 +32,9 @@ jobs:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
       - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: Read and verify version
         shell: bash
         run: |
@@ -45,6 +48,8 @@ jobs:
         run: |
           go -C server test -race ./...
           go -C server vet ./...
+      - name: Test native Web startup feedback
+        run: node --test scripts/test-web-bootstrap.mjs
       - name: Test client and build Web
         run: ./gradlew --no-daemon :shared:jvmTest :webApp:wasmJsBrowserDistribution
       - name: Build Mac app

@@ -24,12 +24,15 @@ internal fun ImportPanel(csv:String,filename:String,preview:ImportPreview?,confi
     onConfirmSimilar:(Boolean)->Unit,onCommit:()->Unit) {
     val native = format != "standard"
     val wechat = format == "wechat"
+    val completed = preview?.alreadyCommitted == true
     var previewPage by remember(preview) { mutableStateOf(0) }
     var showFormat by remember { mutableStateOf(false) }
     var evidenceLine by remember(preview) { mutableStateOf<Int?>(null) }
     Surface(color=Color.White,shape=RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(22.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
-            Text("导入账单",fontSize=21.sp,fontWeight=FontWeight.Bold,color=Pine)
+            Text(if(completed)"导入结果"else"文件补充",fontSize=21.sp,fontWeight=FontWeight.Bold,color=Pine)
+            if(completed)Text(filename,color=Ink,fontWeight=FontWeight.Medium)
+            if(!completed) {
             ImportSourceSelector(format,working,onMode)
             Text(if(wechat)"选择微信账单 CSV 或 XLSX。最多 1000 条、2 MB。"else if(native)"直接选择支付宝导出的 CSV。最多 1000 条、2 MB。"else"按模板整理人民币收入和支出，最多 1000 行、2 MB。",color=Muted,fontSize=12.sp)
             if(native) {
@@ -52,6 +55,7 @@ internal fun ImportPanel(csv:String,filename:String,preview:ImportPreview?,confi
             if(showFormat&&native) Text((if(wechat)"CSV 需为 UTF-8 且包含微信账单表头；XLSX 仅支持单工作表。请勿改写订单号。"else"支持 UTF-8 和 GB18030。")+"退款、转账及不能确定的记录会保留为待核实，不计入收支；确认后仅保存通过校验的记录。",fontSize=12.sp,color=Muted)
             if(showFormat&&!native) Text("UTF-8 编码。必填：date 日期、type 收支、amount 金额（元）、currency 币种（CNY）、merchant 商户、source 来源。可选：category 分类、account 账户、external_id 流水号、note 备注。转账、退款和还款暂不支持。",fontSize=12.sp,color=Muted)
             Button(onClick=onPreview,enabled=(if(native)hasNativeFile&&sourceAccount.isNotBlank()else csv.isNotBlank())&&!working){Text("预览账单")}
+            }
             preview?.let { p ->
                 if(p.alreadyCommitted) Text(if(p.undone)"此批次已撤销，重复导入不会重新入账。可在导入记录中恢复。"else"此文件已入账，重复导入不会新增账单。",color=Pine)
                 else Text("将新增 ${p.newCount} 笔 · 跳过 ${p.duplicateCount} 笔重复流水 · ${p.similarCount} 笔疑似重复",fontWeight=FontWeight.Bold)

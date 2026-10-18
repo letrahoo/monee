@@ -2,7 +2,7 @@
 openapi: 3.1.0
 info:
   title: Monee Local Ledger API
-  version: 1.6.0
+  version: 1.7.0
   description: Unified product users with explicitly linked Google/GitHub identities.
     System admission is separate from ledger ownership/editor/viewer memberships.
     All data access is enforced by Go. Feishu is reserved for a future provider adapter.
@@ -56,8 +56,10 @@ paths:
   "/api/v1/dashboard":
     get:
       operationId: dashboard
-      description: Statistics cover the entire month. Search and page only filter
-        the transaction list.
+      description: Statistics, categories and totalCount cover the entire selected month.
+        Literal search, structured type/accountId/category and page only narrow transactions
+        and filteredCount. Options are from active monthly postings; accountId is stable
+        across display-name changes. Parameters may not repeat; unknown parameters are rejected.
       parameters:
       - in: query
         name: month
@@ -72,6 +74,18 @@ paths:
         schema:
           type: string
           maxLength: 100
+      - in: query
+        name: type
+        schema: {type: string, enum: ['', income, expense, refund, transfer]}
+        description: Exact transaction type; future transfer may legitimately return no rows.
+      - in: query
+        name: accountId
+        schema: {type: string, format: uuid}
+        description: Stable funding account ID from filterOptions, not historical display label.
+      - in: query
+        name: category
+        schema: {type: string, maxLength: 200}
+        description: Exact category, AND-combined with all other filters. Empty selects all.
       - in: query
         name: page
         schema:
@@ -97,6 +111,30 @@ paths:
                 "$ref": "#/components/schemas/Dashboard"
         default:
           "$ref": "#/components/responses/Error"
+  "/api/v1/annual":
+    get:
+      operationId: annualStatistics
+      description: A single authorized SQLite snapshot of recorded activity, not source completeness.
+        Returns exactly twelve calendar slots. Refunds reduce expense in their own month;
+        income excludes refunds and transfers. Surplus is income minus net expense, not balance.
+        Soft-deleted and pending source rows are excluded. Integer overflow is rejected.
+        Unknown, repeated or malformed query parameters are rejected.
+      parameters:
+      - in: query
+        name: year
+        schema: {type: string, pattern: '^[0-9]{4}$'}
+        description: ASCII YYYY from 1900 through 2200; omitted or empty uses Asia/Shanghai current year.
+      - in: header
+        name: X-Monee-Ledger
+        schema: {type: string, format: uuid}
+        description: Explicit target ledger; membership is revalidated on every request.
+      responses:
+        '200':
+          description: Exact integer-fen strings, ledger version, twelve month slots and annual categories.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnnualReport'}
+        default: {$ref: '#/components/responses/Error'}
   "/api/v1/transactions/{id}/refunds":
     parameters:
     - in: path
@@ -1856,6 +1894,7 @@ components:
       - pageSize
       - categories
       - transactions
+      - filterOptions
       properties:
         ledgerId:
           type: string
@@ -1903,7 +1942,7 @@ components:
           const: 50
         categories:
           type: array
-          description: Expense categories sorted by amount descending then name.
+          description: Expense categories sorted by gross expense descending then name; net and refunds are separate fields.
           items:
             type: object
             required:
@@ -1926,6 +1965,73 @@ components:
           maxItems: 50
           items:
             "$ref": "#/components/schemas/Transaction"
+        filterOptions: {$ref: '#/components/schemas/DashboardFilterOptions'}
+    DashboardFilterOptions:
+      type: object
+      required: [accounts, categories]
+      properties:
+        accounts:
+          type: array
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id: {type: string, format: uuid}
+              name: {type: string}
+        categories:
+          type: array
+          items: {type: string}
+    CategoryTotal:
+      type: object
+      required: [name, amountMinor, grossExpenseMinor, refundMinor]
+      properties:
+        name: {type: string}
+        amountMinor: {$ref: '#/components/schemas/Minor'}
+        grossExpenseMinor: {$ref: '#/components/schemas/Minor'}
+        refundMinor: {$ref: '#/components/schemas/Minor'}
+    StatisticsTotals:
+      type: object
+      required: [incomeMinor, grossExpenseMinor, refundMinor, expenseMinor, surplusMinor, totalCount, categories]
+      properties:
+        incomeMinor: {$ref: '#/components/schemas/Minor'}
+        grossExpenseMinor: {$ref: '#/components/schemas/Minor'}
+        refundMinor: {$ref: '#/components/schemas/Minor'}
+        expenseMinor: {$ref: '#/components/schemas/Minor'}
+        surplusMinor: {$ref: '#/components/schemas/Minor'}
+        totalCount: {type: integer, minimum: 0}
+        categories:
+          type: array
+          description: Gross expense descending then name; refund-only categories retained.
+          items: {$ref: '#/components/schemas/CategoryTotal'}
+    YearMonthSummary:
+      allOf:
+      - {$ref: '#/components/schemas/StatisticsTotals'}
+      - type: object
+        required: [month, hasRecords]
+        properties:
+          month: {type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'}
+          hasRecords:
+            type: boolean
+            description: True for any active formal record, even when monetary totals are all zero.
+    AnnualReport:
+      allOf:
+      - {$ref: '#/components/schemas/StatisticsTotals'}
+      - type: object
+        required: [ledgerId, version, year, today, years, months]
+        properties:
+          ledgerId: {type: string, format: uuid}
+          version: {type: integer, format: int64, minimum: 0}
+          year: {type: integer, minimum: 1900, maximum: 2200}
+          today: {type: string, format: date}
+          years:
+            type: array
+            description: Descending recorded years plus current and selected year, not source coverage.
+            items: {type: integer}
+          months:
+            type: array
+            minItems: 12
+            maxItems: 12
+            items: {$ref: '#/components/schemas/YearMonthSummary'}
     CorrectionInput:
       type: object
       additionalProperties: false
