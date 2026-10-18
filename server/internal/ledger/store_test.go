@@ -2,6 +2,8 @@ package ledger
 
 import (
 	"encoding/json"
+	"fmt"
+	"github.com/letrahoo/monee/server/internal/storage"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -291,7 +293,9 @@ func TestFutureSchemaRejected(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	s.db.Exec("PRAGMA user_version=5")
+	if _, err := s.db.Exec(fmt.Sprintf("PRAGMA user_version=%d", storage.SchemaVersion+1)); err != nil {
+		t.Fatal(err)
+	}
 	s.Close()
 	if reopened, e := Open(path); e == nil {
 		reopened.Close()

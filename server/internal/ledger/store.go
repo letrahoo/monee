@@ -59,6 +59,11 @@ func Open(path string) (*Store, error) {
 	if version > storage.SchemaVersion {
 		return fail(problem("future_schema", "数据库来自更新版本，拒绝以旧程序写入"))
 	}
+	if version < 5 {
+		if err = rejectPrematureExpensePairObjects(db); err != nil {
+			return fail(err)
+		}
+	}
 	if version > 0 && version < storage.SchemaVersion {
 		if err = storage.Snapshot(path, path+".backup-before-v"+strconv.Itoa(storage.SchemaVersion)+"-"+newID()); err != nil {
 			return fail(err)
@@ -104,6 +109,14 @@ func Open(path string) (*Store, error) {
 		if err = migrateTransferSchema(db); err != nil {
 			return fail(err)
 		}
+	}
+	if version < 5 {
+		if err = migrateExpensePairSchema(db); err != nil {
+			return fail(err)
+		}
+	}
+	if err = checkExpensePairFoundation(db); err != nil {
+		return fail(err)
 	}
 	if err = db.QueryRow("SELECT id,device_id FROM ledgers ORDER BY created_at,id LIMIT 1").Scan(&s.ledgerID, &s.deviceID); err != nil {
 		return fail(err)
