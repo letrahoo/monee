@@ -15,7 +15,7 @@
 - 租约只协调遵守相同协议的进程。它不强制所有 ledger.Open/auth.Open 调用持锁，不约束任意 SQLite 客户端、数据库硬链接/跨目录别名或旧无锁工具。
 - 需要可信、稳定的数据目录命名空间。规范目录自身被恶意 rename/替换不在此实现保障内；没有声称使用 directory-fd/openat 防御。
 - 启动协调器仅在入口校验租约；调用方须保留租约直至返回的 stores 关闭，不得并发关闭。Within 的回调不能重入 Within/Close。
-- 未来升级仍须停机关闭所有旧连接。user_version 提升不会使旧连接失效，WAL 的排他事务不能替代这一要求。
+- 未来升级仍须停机关闭所有旧连接。user_version 提升不会使旧连接失效，WAL 的排他事务不能替代这一要求。已用[隔离反例与固定版本拒绝测试](../verification/upgrade-boundary-counterexamples-2026-11-07.md)直接验证租约和版本号不会吊销已开 SQLite 连接。
 
 ## 后续最小增量
 
