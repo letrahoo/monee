@@ -24,6 +24,18 @@ class RefundPresentationTest {
         requests.clear(scope,first)
         assertNull(requests.get(scope))
     }
+    @Test fun refundAccountIsChosenFromServiceListDefaultingToOriginal() {
+        val original="""{"id":"o","date":"2026-01-05","type":"expense","amountMinor":"-2500","currency":"CNY","merchant":"合成","category":"学习","source":"合成","account":"合成钱包B","externalId":"","note":"","version":1}"""
+        val summary=apiJson.decodeFromString<RefundSummary>("""{"original":$original,"refundedMinor":"0","remainingMinor":"2500","refunds":[],"accounts":[{"id":"a","name":"合成钱包A"},{"id":"b","name":"合成钱包B"}]}""")
+        assertEquals(listOf("合成钱包A","合成钱包B"),refundAccountChoices(summary))
+        assertEquals("合成钱包B",defaultRefundAccount(summary))
+        // An older service without the list only offers the original account.
+        val legacy=apiJson.decodeFromString<RefundSummary>("""{"original":$original,"refundedMinor":"0","remainingMinor":"2500","refunds":[]}""")
+        assertEquals(listOf("合成钱包B"),refundAccountChoices(legacy))
+        val missing=summary.copy(accounts=listOf(RefundAccountOption("a","合成钱包A")))
+        assertEquals("合成钱包A",defaultRefundAccount(missing))
+        assertEquals("未填写账户",refundAccountLabel(""))
+    }
     @Test fun chartNeverDividesByZeroOrUsesNegativeNetAsDenominator() {
         assertEquals(0f,expenseShare("0","0"))
         assertEquals(0f,expenseShare("0","-3000"))

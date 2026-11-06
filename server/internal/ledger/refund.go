@@ -18,10 +18,48 @@ type RefundInput struct {
 }
 
 type RefundSummary struct {
-	Original       Transaction   `json:"original"`
-	RefundedMinor  string        `json:"refundedMinor"`
-	RemainingMinor string        `json:"remainingMinor"`
-	Refunds        []Transaction `json:"refunds"`
+	Original       Transaction           `json:"original"`
+	RefundedMinor  string                `json:"refundedMinor"`
+	RemainingMinor string                `json:"remainingMinor"`
+	Refunds        []Transaction         `json:"refunds"`
+	Accounts       []RefundAccountOption `json:"accounts"`
+}
+
+// RefundAccountOption is an existing fund account a refund may return to.
+type RefundAccountOption struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// Refund destinations are limited to fund accounts already carrying an active
+// transaction in this ledger, so a mistyped name cannot create a new account.
+const refundAccountQuery = `SELECT a.id,a.name FROM accounts a WHERE a.ledger_id=? AND a.kind='clearing' AND a.deleted_at IS NULL
+ AND EXISTS (SELECT 1 FROM postings p JOIN transactions t ON t.id=p.transaction_id WHERE p.account_id=a.id AND t.ledger_id=a.ledger_id AND t.deleted_at IS NULL)`
+
+func (s *Store) refundAccounts(q *sql.Tx) ([]RefundAccountOption, error) {
+	rows, err := q.Query(refundAccountQuery+" ORDER BY a.name,a.id", s.ledgerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []RefundAccountOption{}
+	for rows.Next() {
+		var option RefundAccountOption
+		if err = rows.Scan(&option.ID, &option.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, option)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) refundAccountExists(q queryer, name string) (bool, error) {
+	var id, matched string
+	err := q.QueryRow(refundAccountQuery+" AND a.name=? LIMIT 1", s.ledgerID, name).Scan(&id, &matched)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func categoryKind(t Transaction) string {
@@ -75,6 +113,9 @@ func (s *Store) Refunds(id string) (RefundSummary, error) {
 	}
 	out.RefundedMinor = strconv.FormatInt(total, 10)
 	out.RemainingMinor = strconv.FormatInt(-amount-total, 10)
+	if out.Accounts, err = s.refundAccounts(tx); err != nil {
+		return out, err
+	}
 	rows, err := tx.Query("SELECT "+transactionColumns+" FROM transactions WHERE ledger_id=? AND refund_of=? AND deleted_at IS NULL ORDER BY occurred_on,created_at,id", s.ledgerID, original.ID)
 	if err != nil {
 		return out, err
@@ -139,6 +180,11 @@ func (s *Store) CreateRefund(id string, in RefundInput, key string) (Transaction
 	}
 	if n.Currency != original.Currency {
 		return out, problem("invalid", "退款币种必须与原消费一致")
+	}
+	if ok, err := s.refundAccountExists(tx, n.Account); err != nil {
+		return out, err
+	} else if !ok {
+		return out, problem("invalid", "退回账户须选择本账本已有账户")
 	}
 	total, err := s.refundTotal(tx, id)
 	if err != nil {

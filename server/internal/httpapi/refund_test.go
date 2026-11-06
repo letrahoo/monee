@@ -46,7 +46,7 @@ func TestRefundCookieRequiresCSRF(t *testing.T) {
 func TestRefundHTTPValidationRetryAndTotals(t *testing.T) {
 	h, token := apiForTest(t)
 	headers := map[string]string{"Authorization": "Bearer " + token, "Content-Type": "application/json", "Idempotency-Key": "refund-http-original"}
-	w := request(h, "POST", "/api/v1/transactions", `{"date":"2026-09-14","type":"expense","amount":"100","currency":"CNY","merchant":"合成消费","source":"合成"}`, headers)
+	w := request(h, "POST", "/api/v1/transactions", `{"date":"2026-09-14","type":"expense","amount":"100","currency":"CNY","merchant":"合成消费","source":"合成","account":"合成退款账户"}`, headers)
 	var original ledger.Transaction
 	if w.Code != 201 || json.Unmarshal(w.Body.Bytes(), &original) != nil {
 		t.Fatal(w.Code, w.Body.String())

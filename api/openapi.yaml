@@ -1863,11 +1863,11 @@ components:
           pattern: '^[0-9]{1,11}(\.[0-9]{1,2})?$'
           description: Positive yuan, at most two decimals and no greater than remaining refundable amount.
         currency: {type: string, const: CNY}
-        account: {type: string, maxLength: 200, description: 'Receiving clearing account; empty becomes 待核实资金账户.'}
+        account: {type: string, maxLength: 200, description: 'Receiving clearing account name; must equal one of RefundSummary.accounts (empty means 待核实资金账户). Unknown names are 422 and never create an account.'}
         note: {type: string, maxLength: 1000}
     RefundSummary:
       type: object
-      required: [original, refundedMinor, remainingMinor, refunds]
+      required: [original, refundedMinor, remainingMinor, refunds, accounts]
       properties:
         original: {"$ref": "#/components/schemas/Transaction"}
         refundedMinor: {"$ref": "#/components/schemas/Minor"}
@@ -1875,6 +1875,15 @@ components:
         refunds:
           type: array
           items: {"$ref": "#/components/schemas/Transaction"}
+        accounts:
+          type: array
+          description: Fund accounts with an active transaction in this ledger, ordered by name then ID. Refunds may only return to one of these.
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id: {type: string, format: uuid}
+              name: {type: string}
     Dashboard:
       type: object
       required:

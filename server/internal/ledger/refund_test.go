@@ -15,6 +15,7 @@ func refundExpense(t *testing.T, s *Store) Transaction {
 	t.Helper()
 	in := testInput()
 	in.Amount = "100"
+	in.Account = "合成退款账户"
 	r, err := s.Create(in, "refund-original-001")
 	if err != nil {
 		t.Fatal(err)
@@ -189,6 +190,7 @@ func TestRefundDependenciesCorrectionAnnotationAndUndo(t *testing.T) {
 	original := dashboard(t, s).Transactions[0]
 	in := refundInput()
 	in.Amount = "10"
+	in.Account = original.Account
 	r, err := s.CreateRefund(original.ID, in, "refund-dependency-001")
 	if err != nil {
 		t.Fatal(err)

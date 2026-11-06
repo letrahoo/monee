@@ -87,7 +87,7 @@ internal fun workbenchMonthStatus(month: YearMonthSummary?): String = when {
 internal val workbenchFilterTypes = listOf("" to "全部类型", "income" to "收入", "expense" to "支出", "refund" to "退款", "transfer" to "转账")
 
 @Composable
-private fun WorkbenchChoice(label: String, isSelected: Boolean, enabled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
+internal fun WorkbenchChoice(label: String, isSelected: Boolean, enabled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
     OutlinedButton(
         onClick = onClick, enabled = enabled,
         modifier = modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { selected = isSelected },
