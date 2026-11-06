@@ -131,6 +131,9 @@ func (s *Store) CreateRefund(id string, in RefundInput, key string) (Transaction
 	if original.Type != "expense" {
 		return out, problem("invalid", "只有消费支出可以关联退款")
 	}
+	if err = s.expensePairMemberLocked(tx, id); err != nil {
+		return out, err
+	}
 	if in.Version != original.Version {
 		return out, problem("conflict", "原消费或退款记录已变化，请刷新后重试")
 	}

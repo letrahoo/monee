@@ -1,6 +1,8 @@
 # 开发交接
 
-更新：2026-10-18。当前接续schema5增加[未开放入口的确认/撤回事务核心](plans/expense-pair-private-lifecycle.md)及[实测边界](verification/expense-pair-private-lifecycle-2026-10-18.md)。只有未导出metadata方法及严格来源/持久快照检查；没有HTTP/UI、有效财务投影或旧writer guard激活，原账务与交易版本不改、毛支出仍两份。Open非空关系门禁保留，必须完整effective读取/两腿posting/旧写与undo保护及独占升级一并到位才开放。M11仍进行中，正常双端未验收，不自动merge/deploy。
+更新：2026-11-07。R16 在私有生命周期之上补[有效统计与旧写入保护](plans/expense-pair-effective-guards.md)（[验证](verification/expense-pair-effective-guards-2026-10-19.md)）：Dashboard 对 active 决策只计 primary、损坏时失败关闭；备注/更正/退款/重复导入链接/导入撤销恢复对 active 成员拒绝。Open 门禁、无 HTTP/UI、未双端验收均不变。
+
+R15 历史：schema5增加[未开放入口的确认/撤回事务核心](plans/expense-pair-private-lifecycle.md)及[实测边界](verification/expense-pair-private-lifecycle-2026-10-18.md)。只有未导出metadata方法及严格来源/持久快照检查；没有HTTP/UI、有效财务投影或旧writer guard激活，原账务与交易版本不改、毛支出仍两份。Open非空关系门禁保留，必须完整effective读取/两腿posting/旧写与undo保护及独占升级一并到位才开放。M11仍进行中，正常双端未验收，不自动merge/deploy。
 
 R14历史基础：在已选schema4链上新增005/schema5持久化基础，见[三表与启动门禁](plans/expense-pair-schema5-foundation.md)、[实际验证及未覆盖](verification/expense-pair-schema5-foundation-2026-10-18.md)。空5库保留原账务；三表任一已有数据或结构未知则Open拒绝，尚无确认/撤回Store/API/UI，不把启动保护说成运行时外部writer防御。未来需完整有效读取/旧写保护/生命周期与独占升级同时解除门禁；M11和正常双端未验收，不自动合并部署。
 

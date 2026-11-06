@@ -19,7 +19,7 @@ internal fun ImportUndoPanel(filename:String,preview:ImportUndoPreview,working:B
             Text("${action}批次",fontSize=21.sp,color=Pine)
             Text(filename)
             if(blocked) {
-                Text("${preview.blockedCount} 笔账单在撤销后发生变化，当前无法恢复整批。",color=MaterialTheme.colors.error)
+                Text("${preview.blockedCount} 笔账单当前无法${action}，整批暂不处理。",color=MaterialTheme.colors.error)
                 Text("账单不会发生变化。请检查下方记录后重新检查。",color=Muted)
             } else {
             Text("将${action} ${preview.changeCount} 笔，保留 ${preview.preservedCount} 笔")

@@ -262,9 +262,10 @@ func TestExpensePairLifecycleStoreConfirmWithdrawReplayAndHistory(t *testing.T) 
 		t.Fatal("reconfirmation overwrote history")
 	}
 	lifecycleOnlyMetadataChanged(t, original, accountingFactTables(t, root))
+	// The active new group counts the shared payment once; original rows stay.
 	after := dashboard(t, s)
-	if before.TotalCount != 2 || after.TotalCount != 2 || before.ExpenseMinor != "2468" || after.ExpenseMinor != "2468" || after.IncomeMinor != "0" || !reflect.DeepEqual(before.Transactions, after.Transactions) {
-		t.Fatal("private metadata must NOT suppress either expense", before, after)
+	if before.TotalCount != 2 || before.ExpenseMinor != "2468" || after.TotalCount != 1 || after.FilteredCount != 1 || after.ExpenseMinor != "1234" || after.GrossExpenseMinor != "1234" || after.IncomeMinor != "0" || len(after.Transactions) != 1 || after.Transactions[0].ID != in.PrimaryTransactionID {
+		t.Fatal("active decision must count the payment once, keeping the primary", before, after)
 	}
 }
 

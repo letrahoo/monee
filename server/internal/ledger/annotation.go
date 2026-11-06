@@ -40,6 +40,9 @@ func (s *Store) Annotate(id string, in AnnotationInput) (Transaction, error) {
 	if before.Version != in.Version {
 		return out, problem("conflict", "这笔交易已被修改，请重新打开详情")
 	}
+	if e = s.expensePairMemberLocked(tx, id); e != nil {
+		return out, e
+	}
 	in.Category = strings.TrimSpace(in.Category)
 	in.Note = strings.TrimSpace(in.Note)
 	if in.Category == "" {

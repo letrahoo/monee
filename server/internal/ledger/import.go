@@ -292,6 +292,10 @@ func (s *Store) Commit(id string, version int64, confirmSimilar bool) (CommitRes
 	for _, row := range p.Rows {
 		disposition := "added"
 		if row.Status == "duplicate" {
+			// A new source link would change an active member's frozen evidence.
+			if err = s.expensePairMemberLocked(tx, row.Record.ID); err != nil {
+				return result, err
+			}
 			result.Skipped++
 			disposition = "duplicate"
 		} else {

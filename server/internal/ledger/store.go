@@ -293,14 +293,25 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 	if page < 1 || page > 100000 || len([]rune(query)) > 100 {
 		return d, problem("invalid", "分页或搜索条件无效")
 	}
-	var err error
-	if err = s.authorize(s.db, false); err != nil {
+	// One read transaction keeps totals, list and confirmed pairs consistent.
+	tx, err := s.db.Begin()
+	if err != nil {
 		return d, err
 	}
-	if d.Version, err = s.version(); err != nil {
+	defer tx.Rollback()
+	if err = s.authorize(tx, false); err != nil {
 		return d, err
 	}
-	rows, err := s.db.Query("SELECT DISTINCT substr(occurred_on,1,7) FROM transactions WHERE ledger_id=? AND deleted_at IS NULL ORDER BY 1 DESC", s.ledgerID)
+	if err = tx.QueryRow("SELECT version FROM ledgers WHERE id=?", s.ledgerID).Scan(&d.Version); err != nil {
+		return d, err
+	}
+	// The secondary of an active same-expense decision is the same payment as
+	// its primary: it is excluded from totals, counts and the list exactly once.
+	suppressed, err := s.expensePairSuppressed(tx)
+	if err != nil {
+		return d, err
+	}
+	rows, err := tx.Query("SELECT DISTINCT substr(occurred_on,1,7) FROM transactions WHERE ledger_id=? AND deleted_at IS NULL ORDER BY 1 DESC", s.ledgerID)
 	if err != nil {
 		return d, err
 	}
@@ -322,7 +333,7 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 		d.Months = append(d.Months, m)
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(d.Months)))
-	rows, err = s.db.Query("SELECT "+transactionColumns+" FROM transactions WHERE ledger_id=? AND substr(occurred_on,1,7)=? AND deleted_at IS NULL ORDER BY occurred_on DESC,created_at DESC,id", s.ledgerID, month)
+	rows, err = tx.Query("SELECT "+transactionColumns+" FROM transactions WHERE ledger_id=? AND substr(occurred_on,1,7)=? AND deleted_at IS NULL ORDER BY occurred_on DESC,created_at DESC,id", s.ledgerID, month)
 	if err != nil {
 		return d, err
 	}
@@ -336,6 +347,9 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 		t, e := scanRecord(rows)
 		if e != nil {
 			return d, e
+		}
+		if suppressed[t.ID] {
+			continue
 		}
 		minor, _ := strconv.ParseInt(t.AmountMinor, 10, 64)
 		if t.Type == "transfer" {
