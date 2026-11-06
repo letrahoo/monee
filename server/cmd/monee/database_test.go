@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"github.com/letrahoo/monee/server/internal/auth"
+	"github.com/letrahoo/monee/server/internal/dirlease"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,7 +47,12 @@ func TestLegacyDatabasesAreBackedUpAndConsolidated(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	l, a, err := openApplication(dir, auth.Config{})
+	lease, err := dirlease.Acquire(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+	l, a, err := openApplication(dir, auth.Config{}, lease)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +85,7 @@ func TestLegacyDatabasesAreBackedUpAndConsolidated(t *testing.T) {
 			t.Fatal("missing backup", name, matches)
 		}
 	}
-	l, a, err = openApplication(dir, auth.Config{})
+	l, a, err = openApplication(dir, auth.Config{}, lease)
 	if err != nil {
 		t.Fatal("restart", err)
 	}

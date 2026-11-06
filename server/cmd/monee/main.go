@@ -20,6 +20,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/letrahoo/monee/server/internal/auth"
+	"github.com/letrahoo/monee/server/internal/dirlease"
 	"github.com/letrahoo/monee/server/internal/httpapi"
 	"github.com/letrahoo/monee/server/internal/redaction"
 	"golang.org/x/net/idna"
@@ -58,11 +59,11 @@ func run() error {
 	if err = os.Chmod(*dataDir, 0700); err != nil {
 		return err
 	}
-	unlock, err := lockDirectory(*dataDir)
+	lease, err := dirlease.Acquire(*dataDir)
 	if err != nil {
 		return err
 	}
-	defer unlock()
+	defer lease.Close()
 	listener, err := net.Listen("tcp", *listen)
 	if err != nil {
 		return fmt.Errorf("local address is already in use: %w", err)
@@ -75,7 +76,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	store, accessStore, err := openApplication(*dataDir, config)
+	store, accessStore, err := openApplication(*dataDir, config, lease)
 	if err != nil {
 		return err
 	}

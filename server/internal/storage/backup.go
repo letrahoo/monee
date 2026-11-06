@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/letrahoo/monee/server/internal/dirlease"
 	_ "modernc.org/sqlite"
 )
 
@@ -106,7 +107,35 @@ func Snapshot(source, directory string) error {
 	done = true
 	return nil
 }
+
+// Restore acquires the same directory lease as the service before inspecting
+// the backup or creating a new target. Online Snapshot remains read-only.
 func Restore(directory, target string) error {
+	absolute, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	lease, err := dirlease.Acquire(filepath.Dir(absolute))
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
+	return RestoreWithLease(lease, directory, absolute)
+}
+
+// RestoreWithLease lets a future offline coordinator retain one lease across
+// backup/restore/upgrade steps, without nesting flock acquisitions.
+func RestoreWithLease(lease *dirlease.Lease, directory, target string) error {
+	absolute, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	return lease.Within(filepath.Dir(absolute), func(ownedDirectory string) error {
+		return restore(directory, filepath.Join(ownedDirectory, filepath.Base(absolute)))
+	})
+}
+
+func restore(directory, target string) error {
 	raw, e := os.ReadFile(filepath.Join(directory, "manifest.json"))
 	if e != nil {
 		return e

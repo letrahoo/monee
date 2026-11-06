@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/letrahoo/monee/server/internal/dirlease"
 )
 
 func TestSnapshotRestoreWALAndTampering(t *testing.T) {
@@ -21,6 +23,22 @@ func TestSnapshotRestoreWALAndTampering(t *testing.T) {
 	}
 	bundle := filepath.Join(root, "backup")
 	if e = Snapshot(source, bundle); e != nil {
+		t.Fatal(e)
+	}
+	lease, e := dirlease.Acquire(root)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = RestoreWithLease(lease, bundle, filepath.Join(root, "coordinated.db")); e != nil {
+		lease.Close()
+		t.Fatal(e)
+	}
+	if other, err := dirlease.Acquire(root); err == nil {
+		other.Close()
+		lease.Close()
+		t.Fatal("restore released caller-owned lease")
+	}
+	if e = lease.Close(); e != nil {
 		t.Fatal(e)
 	}
 	dest := filepath.Join(root, "restored.db")
