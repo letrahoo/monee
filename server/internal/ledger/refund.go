@@ -64,6 +64,12 @@ func (s *Store) Refunds(id string) (RefundSummary, error) {
 	if original.Type != "expense" {
 		return out, problem("invalid", "只有消费支出可以关联退款")
 	}
+	// The ordinary refund workflow is unavailable while an expense is paired.
+	// Do not advertise two independent allowances or silently redirect evidence
+	// IDs. Validate the decision in this read snapshot before exposing a balance.
+	if err = s.expensePairMemberLocked(tx, original.ID); err != nil {
+		return out, err
+	}
 	out.Original = original
 	total, err := s.refundTotal(tx, original.ID)
 	if err != nil {

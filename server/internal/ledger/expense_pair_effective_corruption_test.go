@@ -47,6 +47,13 @@ func TestExpensePairEffectiveCorruptionBlocksReadersAndWriters(t *testing.T) {
 					_, e := s.CreateRefund(in.PrimaryTransactionID, RefundInput{Version: in.PrimaryVersion, Date: "2026-09-16", Amount: "1.00", Currency: "CNY", Account: "合成退款账户"}, "corrupt-refund-no-write")
 					return e
 				},
+				"refund-summary": func() error {
+					out, e := s.Refunds(in.PrimaryTransactionID)
+					if !reflect.DeepEqual(out, RefundSummary{Refunds: []Transaction{}}) {
+						return problem("test_nonempty_summary", "unexpected summary")
+					}
+					return e
+				},
 				"commit":  func() error { _, e := s.Commit(preview.ID, preview.LedgerVersion, true); return e },
 				"undo":    func() error { _, e := s.UndoImport(importID, r.LedgerVersion); return e },
 				"restore": func() error { _, e := s.RestoreImport(importID, r.LedgerVersion); return e },
