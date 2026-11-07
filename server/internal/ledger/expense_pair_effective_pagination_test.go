@@ -57,6 +57,12 @@ func TestExpensePairEffectiveSearchAndPagination(t *testing.T) {
 		if err != nil || len(d.Transactions) != want || d.FilteredCount != PageSize+1 || d.Version != receipt.LedgerVersion {
 			t.Fatal(page, d, err)
 		}
+		if page == 1 && (len(d.ExpensePairs) != 1 || d.ExpensePairs[0] != receipt) {
+			t.Fatal("primary navigation missing at page boundary", d)
+		}
+		if page != 1 && len(d.ExpensePairs) != 0 {
+			t.Fatal("navigation leaked to another page", d)
+		}
 		for _, row := range d.Transactions {
 			if seen[row.ID] || row.ID == in.SecondaryTransactionID {
 				t.Fatal("duplicate/suppressed row crossed page boundary", row)

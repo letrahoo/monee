@@ -286,7 +286,7 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 	if month == "" {
 		month = today[:7]
 	}
-	d := Dashboard{LedgerID: s.ledgerID, Month: month, Today: today, Months: []string{}, IncomeMinor: "0", ExpenseMinor: "0", Page: page, PageSize: PageSize, Categories: []CategoryTotal{}, Transactions: []Transaction{}}
+	d := Dashboard{LedgerID: s.ledgerID, Month: month, Today: today, Months: []string{}, IncomeMinor: "0", ExpenseMinor: "0", Page: page, PageSize: PageSize, Categories: []CategoryTotal{}, Transactions: []Transaction{}, ExpensePairs: []ExpensePairReceipt{}}
 	if !monthPattern.MatchString(month) || month[:4] < "1900" || month[:4] > "2200" {
 		return d, problem("invalid", "月份须为 YYYY-MM")
 	}
@@ -307,7 +307,7 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 	}
 	// The secondary of an active same-expense decision is the same payment as
 	// its primary: it is excluded from totals, counts and the list exactly once.
-	suppressed, err := s.expensePairSuppressed(tx)
+	suppressed, primaryPairs, err := s.expensePairEffectiveProjection(tx)
 	if err != nil {
 		return d, err
 	}
@@ -378,6 +378,9 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 		if query == "" || strings.Contains(strings.ToLower(strings.Join([]string{t.Merchant, t.Category, t.Source, t.Account, t.ToAccount, t.Note}, "\n")), query) {
 			if d.FilteredCount >= (page-1)*PageSize && d.FilteredCount < page*PageSize {
 				d.Transactions = append(d.Transactions, t)
+				if pair, ok := primaryPairs[t.ID]; ok {
+					d.ExpensePairs = append(d.ExpensePairs, pair)
+				}
 			}
 			d.FilteredCount++
 		}

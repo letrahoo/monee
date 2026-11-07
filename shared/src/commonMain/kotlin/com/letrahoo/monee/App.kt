@@ -296,6 +296,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                                             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(5.dp)) {
                                                 Text(if(item.type=="transfer")transactionAccountLabel(item)else item.merchant,fontWeight=FontWeight.Medium,color=Ink,maxLines=1,overflow=TextOverflow.Ellipsis)
                                                 Text("${item.category} · ${item.source}${if(compact)" · ${item.date}"else""}",fontSize=12.sp,color=Muted)
+                                                if(data.expensePairs.any { it.primaryId==item.id }) Text("已关联 · 支出仅计一次",fontSize=12.sp,color=Pine)
                                             }
                                             Text(transactionAmountLabel(item),color=if(item.type=="income")Pine else Ink,fontWeight=FontWeight.SemiBold)
                                         }

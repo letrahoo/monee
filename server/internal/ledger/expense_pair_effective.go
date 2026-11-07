@@ -84,29 +84,38 @@ func (s *Store) expensePairImportLocked(tx *sql.Tx, importID string) (map[string
 // It uses the strict loader, so damaged or drifted metadata fails closed rather
 // than silently falling back to double-counted raw totals.
 func (s *Store) expensePairSuppressed(tx *sql.Tx) (map[string]bool, error) {
+	out, _, err := s.expensePairEffectiveProjection(tx)
+	return out, err
+}
+
+// Suppression and navigation come from one strictly validated snapshot. Returning
+// receipts separately avoids adding derived fields to persisted Transaction JSON.
+func (s *Store) expensePairEffectiveProjection(tx *sql.Tx) (map[string]bool, map[string]ExpensePairReceipt, error) {
 	out := map[string]bool{}
+	primary := map[string]ExpensePairReceipt{}
 	present, err := expensePairSchemaPresent(tx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !present {
-		return out, nil
+		return out, primary, nil
 	}
 	var populated bool
 	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM expense_pair_decisions WHERE ledger_id=?) OR EXISTS(SELECT 1 FROM expense_pair_members WHERE ledger_id=?) OR EXISTS(SELECT 1 FROM expense_pair_revisions WHERE ledger_id=?) OR EXISTS(SELECT 1 FROM change_log WHERE ledger_id=? AND entity_type='expense_pair_decision')`, s.ledgerID, s.ledgerID, s.ledgerID, s.ledgerID).Scan(&populated); err != nil {
-		return nil, expensePairUnavailable()
+		return nil, nil, expensePairUnavailable()
 	}
 	if !populated {
-		return out, nil
+		return out, primary, nil
 	}
 	decisions, err := s.loadExpensePairLedger(tx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, d := range decisions {
 		if d.Status == "active" {
 			out[d.Members[1].TransactionID] = true
+			primary[d.Members[0].TransactionID] = d.Revisions[len(d.Revisions)-1].Receipt
 		}
 	}
-	return out, nil
+	return out, primary, nil
 }

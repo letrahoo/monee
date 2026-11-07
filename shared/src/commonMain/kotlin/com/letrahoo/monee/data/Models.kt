@@ -27,6 +27,9 @@ data class Dashboard(
     val page: Int, val pageSize: Int, val categories: List<CategoryTotal>,
     val transactions: List<LedgerTransaction>,
     val grossExpenseMinor:String=expenseMinor, val refundMinor:String="0",
+    // Current-page active-primary receipts; never add association metadata to
+    // LedgerTransaction, which also appears in immutable source snapshots.
+    val expensePairs:List<ExpensePairReceipt> = emptyList(),
 )
 
 @Serializable data class RefundInput(val version:Long,val date:String,val amount:String,val currency:String="CNY",val account:String="",val note:String="")

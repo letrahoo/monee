@@ -1,5 +1,7 @@
 # 开发交接
 
+最新客户端增量：[关联导航与传输层](plans/expense-pair-client-transport.md)及[验证](verification/expense-pair-client-transport-2026-11-07.md)。Dashboard顶层expensePairs只给当前页active primary，列表显示计一次提示；共享DTO/API保留scope-bound未知写入key，MockEngine覆盖重连/换账号/迟到响应。仍无完整操作面板与双来源导航，schema6正常运行未开放，不能当双端验收完成。下一步直接做确认/撤回UI竖切及版本能力交付。
+
 最新API增量：新增[消费关联授权API](plans/expense-pair-authorized-api.md)及[验证](verification/expense-pair-authorized-api-2026-11-07.md)：预览、确认、按交易查历史、撤回；同事务授权并要求能力6。正常schema5仍503未启用，Open6仍拒绝，无共享UI/关联badge，未双端实际验收。隔离HTTP已跑通native导入→预览→确认/重放→只计一次→历史→撤回恢复两行。下一步推进正常能力门禁与共享UI竖切，不再添加不存在的posting读取脚手架。
 
 最新私有增量：实现[离线升级协调器](plans/expense-pair-offline-upgrade.md)及[隔离验证](verification/expense-pair-offline-upgrade-2026-11-07.md)。仅未导出方法、无正常调用入口；持租约精确v5空表校验→备份内容/manifest验证→同步落盘→事务内重验/切换6。正常生产仍schema5并拒绝6/非空关联表，未实际升级或开放功能。未来不能直接把生产常量改6就称交付。

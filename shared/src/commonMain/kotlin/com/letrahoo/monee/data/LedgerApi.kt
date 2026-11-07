@@ -47,6 +47,105 @@ class LedgerApi internal constructor(
     private var currentUserId:String?=null
     private val refundRequests=RefundRequests()
     private val transferRequests=TransferRequests()
+    private val expensePairRequests=ExpensePairRequests()
+    // Changes immediately on reconnect and on identity/origin changes. Pair
+    // calls capture this before their first suspension and pin credentials.
+    private var expensePairEpoch=0L
+
+    private data class ExpensePairStamp(val scope:ExpensePairScope,val epoch:Long,val token:String?,val csrf:String)
+    private fun expensePairScope(ledgerId:String):ExpensePairScope? = sessionOrigin?.let { origin ->
+        currentUserId?.let { user -> ExpensePairScope(origin,user,ledgerId) }
+    }
+    private fun expensePairScopeChanged() = LedgerException("账号或连接已变化，请返回原账本核实操作结果", "expense_pair_scope_changed")
+    private fun expensePairStampCurrent(stamp:ExpensePairStamp):Boolean =
+        expensePairEpoch==stamp.epoch && expensePairScope(stamp.scope.ledgerId)==stamp.scope &&
+            accessToken==stamp.token && csrf==stamp.csrf
+    private suspend fun expensePairStamp(ledgerId:String):ExpensePairStamp {
+        require(expensePairIdentifier(ledgerId)) { "账本标识无效" }
+        val epoch=expensePairEpoch
+        destination()
+        if(epoch!=expensePairEpoch)throw expensePairScopeChanged()
+        val scope=expensePairScope(ledgerId) ?: throw LedgerException("请先刷新登录状态","unauthenticated")
+        return ExpensePairStamp(scope,epoch,accessToken,csrf)
+    }
+
+    fun pendingExpensePair(ledgerId:String):ExpensePairSubmission? = expensePairScope(ledgerId)?.let { expensePairRequests.get(it) }
+    suspend fun prepareExpensePairConfirm(ledgerId:String,input:ExpensePairConfirmInput,newKey:()->String):ExpensePairConfirmSubmission {
+        val stamp=expensePairStamp(ledgerId)
+        return expensePairRequests.prepareConfirm(stamp.scope,input,newKey)
+    }
+    suspend fun prepareExpensePairWithdraw(ledgerId:String,decisionId:String,input:ExpensePairWithdrawInput,newKey:()->String):ExpensePairWithdrawSubmission {
+        val stamp=expensePairStamp(ledgerId)
+        return expensePairRequests.prepareWithdraw(stamp.scope,decisionId,input,newKey)
+    }
+
+    suspend fun previewExpensePair(ledgerId:String,input:ExpensePairPreviewInput):ExpensePairPreview {
+        require(input.valid()) { "消费关联预览请求无效" }
+        val stamp=expensePairStamp(ledgerId)
+        val result=apiJson.decodeFromString<ExpensePairPreview>(expensePairRequest(stamp,"expense-pairs/preview",HttpMethod.Post,apiJson.encodeToString(input)))
+        if(!expensePairStampCurrent(stamp))throw expensePairScopeChanged()
+        if(!result.matches(input))throw LedgerException("消费关联预览响应无效，请刷新后重试","expense_pair_contract")
+        return result
+    }
+    suspend fun expensePairs(ledgerId:String,transactionId:String):ExpensePairDetail {
+        require(expensePairIdentifier(transactionId)) { "交易标识无效" }
+        val stamp=expensePairStamp(ledgerId)
+        val result=apiJson.decodeFromString<ExpensePairDetail>(expensePairRequest(stamp,"transactions/$transactionId/expense-pairs"))
+        if(!expensePairStampCurrent(stamp))throw expensePairScopeChanged()
+        if(!result.matches(transactionId))throw LedgerException("消费关联详情响应无效，请刷新后重试","expense_pair_contract")
+        return result
+    }
+    suspend fun confirmExpensePair(ledgerId:String,submission:ExpensePairConfirmSubmission):ExpensePairReceipt =
+        submitExpensePair(ledgerId,submission,"expense-pairs",apiJson.encodeToString(submission.input))
+    suspend fun withdrawExpensePair(ledgerId:String,submission:ExpensePairWithdrawSubmission):ExpensePairReceipt =
+        submitExpensePair(ledgerId,submission,"expense-pairs/${submission.decisionId}/withdraw",apiJson.encodeToString(submission.input))
+
+    private suspend fun submitExpensePair(ledgerId:String,submission:ExpensePairSubmission,path:String,body:String):ExpensePairReceipt {
+        val stamp=expensePairStamp(ledgerId)
+        require(submission.scope==stamp.scope && expensePairRequests.get(stamp.scope)===submission) { "消费关联请求不属于当前账号或账本" }
+        try {
+            val result=apiJson.decodeFromString<ExpensePairReceipt>(expensePairRequest(stamp,path,HttpMethod.Post,body,submission.key))
+            if(!expensePairStampCurrent(stamp))throw expensePairScopeChanged()
+            if(!result.matches(submission))throw LedgerException("消费关联操作结果尚未确认，请保留原请求重试","expense_pair_contract")
+            expensePairRequests.clear(stamp.scope,submission)
+            return result
+        } catch(e:LedgerException) {
+            // No uncertain network/server/contract/cancellation response can replace
+            // the exact input or key. A late old-scope rejection clears nothing.
+            if(expensePairStampCurrent(stamp) && e.code in listOf("invalid","conflict"))expensePairRequests.clear(stamp.scope,submission)
+            throw e
+        }
+    }
+
+    private suspend fun expensePairRequest(stamp:ExpensePairStamp,path:String,method:HttpMethod=HttpMethod.Get,body:String?=null,key:String?=null):String {
+        if(!expensePairStampCurrent(stamp))throw expensePairScopeChanged()
+        try {
+            // Do not call request()/destination() again: discovery must never
+            // silently redirect an old confirmation into a new origin/session.
+            val response=client.request(stamp.scope.origin+"/api/v1/"+path) {
+                this.method=method
+                stamp.token?.let { header(HttpHeaders.Authorization,"Bearer $it") }
+                if(stamp.csrf.isNotEmpty())header("X-Monee-CSRF",stamp.csrf)
+                header("X-Monee-Ledger",stamp.scope.ledgerId)
+                key?.let { header("Idempotency-Key",it) }
+                if(body!=null){contentType(ContentType.Application.Json);setBody(body)}
+            }
+            val text=response.bodyAsText()
+            if(!expensePairStampCurrent(stamp))throw expensePairScopeChanged()
+            if(!response.status.isSuccess()) {
+                val problem=runCatching { apiJson.decodeFromString<APIProblem>(text) }.getOrDefault(APIProblem(message="本地服务返回异常，请重试"))
+                throw LedgerException(problem.message,problem.code)
+            }
+            return text
+        } catch(e:CancellationException){throw e
+        } catch(e:LedgerException){if(!expensePairStampCurrent(stamp))throw expensePairScopeChanged();throw e
+        } catch(e:Throwable){
+            if(!expensePairStampCurrent(stamp))throw expensePairScopeChanged()
+            if(e !is Exception && !isPlatformNetworkFailure(e))throw e
+            connection=null
+            throw LedgerException("连接失败，消费关联结果尚未确认，请使用原请求重试。")
+        }
+    }
 
     private fun transferScope(ledgerId:String):TransferScope? =
         sessionOrigin?.let { origin->currentUserId?.let { user->TransferScope(origin,user,ledgerId) } }
@@ -79,12 +178,13 @@ class LedgerApi internal constructor(
         return refundRequests.prepare(scope,originalId,input,newKey)
     }
 
-    fun reconnect() { connection = null }
+    fun reconnect() { expensePairEpoch++; connection = null }
     fun close() { client.close() }
 
     private suspend fun destination():Connection = sessionMutex.withLock {
         val next=connection ?: discover(client).also { connection=it }
         if(sessionOrigin!=next.baseUrl) {
+            expensePairEpoch++
             accessToken=readSession(next.baseUrl);csrf="";currentUserId=null;sessionOrigin=next.baseUrl
         }
         next
@@ -123,7 +223,12 @@ class LedgerApi internal constructor(
     suspend fun authState(): AuthState {
         val origin=destination().baseUrl
         val tokenAtStart=accessToken
+        val pairEpochAtStart=expensePairEpoch
         val state=apiJson.decodeFromString<AuthState>(request("auth/me"))
+        // A delayed auth response must not rebind pair submissions to a newer
+        // connection or resurrect the identity that has just logged out.
+        if(sessionOrigin!=origin || expensePairEpoch!=pairEpochAtStart || accessToken!=tokenAtStart)throw expensePairScopeChanged()
+        if(currentUserId!=state.user?.id)expensePairEpoch++
         currentUserId=state.user?.id
         csrf=state.csrfToken
         sessionMutex.withLock {
@@ -147,7 +252,7 @@ class LedgerApi internal constructor(
                 when(result.status) {
                     "complete" -> {
                         if(result.token.isBlank())throw LedgerException("登录未完成")
-                        sessionMutex.withLock { accessToken=result.token;writeSession(base,result.token) }
+                        sessionMutex.withLock { expensePairEpoch++;currentUserId=null;accessToken=result.token;writeSession(base,result.token) }
                         returnToApplication()
                         return@withTimeout
                     }
@@ -158,6 +263,7 @@ class LedgerApi internal constructor(
         }
     }
     suspend fun logout() {
+        expensePairEpoch++;currentUserId=null
         val base=destination().baseUrl
         request("auth/logout",HttpMethod.Post,"{}")
         sessionMutex.withLock { accessToken=null;csrf="";currentUserId=null;removeSession(base) }

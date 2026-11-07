@@ -2078,6 +2078,7 @@ components:
       - pageSize
       - categories
       - transactions
+      - expensePairs
       properties:
         ledgerId:
           type: string
@@ -2148,6 +2149,14 @@ components:
           maxItems: 50
           items:
             "$ref": "#/components/schemas/Transaction"
+        expensePairs:
+          type: array
+          maxItems: 50
+          description: |
+            Active receipts for primary transactions visible on this page, in transaction
+            order. Empty for other pages/search results and after withdrawal. Derived
+            navigation only; never persisted inside transaction/source snapshot JSON.
+          items: {"$ref": "#/components/schemas/ExpensePairReceipt"}
     CorrectionInput:
       type: object
       additionalProperties: false
