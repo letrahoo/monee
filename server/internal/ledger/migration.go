@@ -163,8 +163,12 @@ func checkExpensePairFoundation(db *sql.DB) error {
 		return expensePairFoundationUnavailable()
 	}
 	defer tx.Rollback()
+	return checkExpensePairFoundationTx(tx)
+}
+
+func checkExpensePairFoundationTx(tx *sql.Tx) error {
 	var version int
-	if err = tx.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 5 {
+	if err := tx.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 5 {
 		return expensePairFoundationUnavailable()
 	}
 	expected := expensePairSchemaObjects()

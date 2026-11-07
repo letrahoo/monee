@@ -135,36 +135,54 @@ func RestoreWithLease(lease *dirlease.Lease, directory, target string) error {
 	})
 }
 
-func restore(directory, target string) error {
-	raw, e := os.ReadFile(filepath.Join(directory, "manifest.json"))
-	if e != nil {
-		return e
+// VerifySnapshot validates the manifest, checksum, integrity and declared schema.
+// It permits future versions for read-only archival, not application startup.
+func VerifySnapshot(directory string) (int, error) {
+	return verifySnapshot(directory)
+}
+
+func verifySnapshot(directory string) (int, error) {
+	raw, err := os.ReadFile(filepath.Join(directory, "manifest.json"))
+	if err != nil {
+		return 0, err
 	}
 	var m Manifest
-	if e = json.Unmarshal(raw, &m); e != nil {
-		return e
+	if err = json.Unmarshal(raw, &m); err != nil {
+		return 0, err
 	}
 	if m.Version != 1 {
-		return fmt.Errorf("unsupported backup version")
+		return 0, fmt.Errorf("unsupported backup version")
 	}
 	source := filepath.Join(directory, "database.sqlite3")
-	hash, e := checksum(source)
-	if e != nil {
-		return e
+	hash, err := checksum(source)
+	if err != nil {
+		return 0, err
 	}
 	if hash != m.SHA256 {
-		return fmt.Errorf("backup checksum mismatch")
+		return 0, fmt.Errorf("backup checksum mismatch")
 	}
-	v, e := Check(source)
-	if e != nil {
-		return e
+	v, err := Check(source)
+	if err != nil {
+		return 0, err
 	}
 	if v != m.Schema {
-		return fmt.Errorf("backup schema mismatch")
+		return 0, fmt.Errorf("backup schema mismatch")
+	}
+	return v, nil
+}
+
+func restore(directory, target string) error {
+	v, e := VerifySnapshot(directory)
+	if e != nil {
+		return e
 	}
 	if v > SchemaVersion {
 		return fmt.Errorf("backup requires a newer application")
 	}
+	return copyRestoredDatabase(filepath.Join(directory, "database.sqlite3"), target)
+}
+
+func copyRestoredDatabase(source, target string) error {
 	in, e := os.Open(source)
 	if e != nil {
 		return e

@@ -1,5 +1,7 @@
 # 开发交接
 
+最新私有增量：实现[离线升级协调器](plans/expense-pair-offline-upgrade.md)及[隔离验证](verification/expense-pair-offline-upgrade-2026-11-07.md)。仅未导出方法、无正常调用入口；持租约精确v5空表校验→备份内容/manifest验证→同步落盘→事务内重验/切换6。正常生产仍schema5并拒绝6/非空关联表，未实际升级或开放功能。未来不能直接把生产常量改6就称交付。
+
 更新：2026-11-07。新增[共享目录租约](plans/shared-directory-lease.md)及[验证](verification/shared-directory-lease-2026-11-07.md)：正常启动持显式 Lease，恢复复用同一 service.lock 协议，旧库迁移复用已有租约以避免自冲突。仅为独占升级前置条件，尚未升级 schema 或解除非空关联门禁。退款摘要也已加同事务保护，见[退款摘要验证](verification/expense-pair-refund-summary-2026-11-07.md)。
 
 R16 在私有生命周期之上补[有效统计与旧写入保护](plans/expense-pair-effective-guards.md)（[验证](verification/expense-pair-effective-guards-2026-10-19.md)）：Dashboard 对 active 决策只计 primary、损坏时失败关闭；备注/更正/退款/重复导入链接/导入撤销恢复对 active 成员拒绝。Open 门禁、无 HTTP/UI、未双端验收均不变。
