@@ -57,6 +57,19 @@ data class ExpensePairDetail(val ledgerVersion: Long, val decisions: List<Expens
 // A client-side result, not a merged source record or persisted transaction.
 data class ExpensePairSources(val primary: List<TransactionSource>, val secondary: List<TransactionSource>)
 
+// One provenance line, not a replacement transaction or a full raw-file export.
+data class ExpensePairEvidence(val transactionId: String, val source: TransactionSource,
+    val record: LedgerTransaction, val raw: Map<String, String>?)
+
+internal fun ImportDetail.expensePairEvidence(transactionId: String, source: TransactionSource): ExpensePairEvidence? {
+    if (preview.id != source.importId || source.line <= 0) return null
+    val original = evidence.filter { it.line == source.line }.singleOrNull() ?: return null
+    if (original.transactionId != transactionId || original.disposition != source.disposition) return null
+    val rows = preview.sourceDocument?.records?.filter { it.line == source.line }.orEmpty()
+    if (rows.size > 1) return null
+    return ExpensePairEvidence(transactionId, source, original.record, rows.singleOrNull()?.raw)
+}
+
 // Public, immutable scope permits a future UI to display exactly which account,
 // origin and ledger owns an uncertain write. Never persist a credential here.
 data class ExpensePairScope(val origin: String, val userId: String, val ledgerId: String)

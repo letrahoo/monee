@@ -109,6 +109,21 @@ class LedgerApi internal constructor(
         return ExpensePairSources(primary,secondary)
     }
 
+    suspend fun expensePairEvidence(ledgerId:String,receipt:ExpensePairReceipt,transactionId:String,source:TransactionSource):ExpensePairEvidence {
+        require(receipt.valid() && transactionId in listOf(receipt.primaryId,receipt.secondaryId) &&
+            expensePairIdentifier(source.importId) && source.line>0) { "关联来源无效" }
+        val stamp=expensePairStamp(ledgerId)
+        val relationship=apiJson.decodeFromString<ExpensePairDetail>(expensePairRequest(stamp,"transactions/$transactionId/expense-pairs"))
+        if(!relationship.matches(transactionId) || receipt !in relationship.decisions)
+            throw LedgerException("关联记录已变化，请刷新详情后重试","expense_pair_contract")
+        val links=apiJson.decodeFromString<List<TransactionSource>>(expensePairRequest(stamp,"transactions/$transactionId/sources"))
+        if(source !in links)throw LedgerException("来源已变化，请刷新两侧来源后重试","expense_pair_contract")
+        val detail=apiJson.decodeFromString<ImportDetail>(expensePairRequest(stamp,"imports/${source.importId}"))
+        if(!expensePairStampCurrent(stamp))throw expensePairScopeChanged()
+        return detail.expensePairEvidence(transactionId,source)
+            ?: throw LedgerException("来源行与交易不匹配，已停止展示，请刷新后核实","expense_pair_contract")
+    }
+
     suspend fun confirmExpensePair(ledgerId:String,submission:ExpensePairConfirmSubmission):ExpensePairReceipt =
         submitExpensePair(ledgerId,submission,"expense-pairs",apiJson.encodeToString(submission.input))
     suspend fun withdrawExpensePair(ledgerId:String,submission:ExpensePairWithdrawSubmission):ExpensePairReceipt =

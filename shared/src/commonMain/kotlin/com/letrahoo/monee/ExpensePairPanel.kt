@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 private data class ExpensePairUiLoadedDetail(val ticket:ExpensePairUiDetailTicket,val value:ExpensePairDetail)
 private data class ExpensePairUiLoadedPreview(val ticket:ExpensePairUiPreviewTicket,val value:ExpensePairPreview)
 private data class ExpensePairUiSources(val primary:List<TransactionSource>,val secondary:List<TransactionSource>)
+private data class ExpensePairUiEvidenceKey(val decisionId:String,val transactionId:String,val source:TransactionSource)
 
 @Composable
 internal fun ExpensePairPanel(api:LedgerApi,userId:String,ledgerId:String,readOnly:Boolean,dashboard:Dashboard?,
@@ -47,6 +48,7 @@ private fun ExpensePairPanelContent(api:LedgerApi,userId:String,ledgerId:String,
     var detailGeneration by remember { mutableStateOf(0) }
     var loadedDetail by remember { mutableStateOf<ExpensePairUiLoadedDetail?>(null) }
     var sourceResults by remember { mutableStateOf<Map<String,ExpensePairUiSources>>(emptyMap()) }
+    var evidenceResults by remember { mutableStateOf<Map<ExpensePairUiEvidenceKey,ExpensePairEvidence>>(emptyMap()) }
     var withdrawDecisionId by remember { mutableStateOf<String?>(null) }
     var withdrawReason by remember { mutableStateOf("") }
     var withdrawAccepted by remember { mutableStateOf(false) }
@@ -66,7 +68,7 @@ private fun ExpensePairPanelContent(api:LedgerApi,userId:String,ledgerId:String,
         withdrawAccepted=false
     }
     LaunchedEffect(detailTarget,dashboardVersion,detailGeneration) {
-        loadedDetail=null;sourceResults=emptyMap();withdrawAccepted=false;detailLoading=false
+        loadedDetail=null;sourceResults=emptyMap();evidenceResults=emptyMap();withdrawAccepted=false;detailLoading=false
         val id=detailTarget ?: return@LaunchedEffect
         val ticket=ExpensePairUiDetailTicket(id,dashboardVersion,detailGeneration)
         detailLoading=true
@@ -216,17 +218,32 @@ private fun ExpensePairPanelContent(api:LedgerApi,userId:String,ledgerId:String,
                 TextButton(onClick={
                     if(loaded!=null)action {
                         val sources=api.expensePairSources(ledgerId,receipt)
-                        if(detailCurrent(loaded.ticket) && loadedDetail===loaded)
+                        if(detailCurrent(loaded.ticket) && loadedDetail===loaded) {
                             sourceResults=sourceResults+(receipt.id to ExpensePairUiSources(sources.primary,sources.secondary))
+                            evidenceResults=emptyMap()
+                        }
                     }
                 },enabled=!busy) { Text("分别查看主 / 副记录来源") }
                 sourceResults[receipt.id]?.let { sources ->
-                    Text("主记录来源 · ${receipt.primaryId}",color=Pine)
-                    if(sources.primary.isEmpty())Text("没有导入来源",color=Muted)
-                    sources.primary.forEach { Text("${it.filename} · 第 ${it.line} 行") }
-                    Text("副记录来源 · ${receipt.secondaryId}",color=Pine)
-                    if(sources.secondary.isEmpty())Text("没有导入来源",color=Muted)
-                    sources.secondary.forEach { Text("${it.filename} · 第 ${it.line} 行") }
+                    listOf(receipt.primaryId to sources.primary,receipt.secondaryId to sources.secondary).forEach { (transactionId,links) ->
+                        Text("${if(transactionId==receipt.primaryId)"主记录"else"副记录"}来源 · $transactionId",color=Pine)
+                        if(links.isEmpty())Text("没有导入来源",color=Muted)
+                        links.forEach { source ->
+                            val evidenceKey=ExpensePairUiEvidenceKey(receipt.id,transactionId,source)
+                            Text("${source.filename} · 第 ${source.line} 行")
+                            TextButton(onClick={
+                                if(loaded!=null)action {
+                                    val evidence=api.expensePairEvidence(ledgerId,receipt,transactionId,source)
+                                    if(detailCurrent(loaded.ticket) && loadedDetail===loaded)
+                                        evidenceResults=evidenceResults+(evidenceKey to evidence)
+                                }
+                            },enabled=!busy) { Text("查看这一行来源明细") }
+                            evidenceResults[evidenceKey]?.let { evidence ->
+                                ExpensePairEvidenceContent(evidence)
+                                TextButton(onClick={evidenceResults=evidenceResults-evidenceKey},enabled=!busy) { Text("收起这一行明细") }
+                            }
+                        }
+                    }
                 }
                 if(!readOnly && receipt.status=="active" && pending==null) {
                     TextButton(onClick={withdrawDecisionId=receipt.id;withdrawReason="";withdrawAccepted=false},enabled=canWrite&&!detailLoading) { Text("准备撤回此关联") }
@@ -257,5 +274,20 @@ private fun ExpensePairPanelContent(api:LedgerApi,userId:String,ledgerId:String,
             }
         }
         TextButton(onClick=onClose) { Text(if(pending!=null)"关闭（保留待核实请求）"else"返回账本") }
+    }
+}
+
+@Composable
+private fun ExpensePairEvidenceContent(evidence:ExpensePairEvidence) {
+    val record=evidence.record
+    Column(Modifier.fillMaxWidth().padding(start=12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+        Text("${evidence.source.filename} · 原文件第 ${evidence.source.line} 行",color=Pine)
+        Text("导入时保存的记录：${record.date} · ${record.merchant}\n${expensePairUiMoney(record.amountMinor)} ${record.currency} · ${record.category}\n${record.source} · ${record.account}")
+        if(record.externalId.isNotBlank()&&!record.externalId.contains("-native-v1:"))Text("来源流水标识：${record.externalId}",color=Muted)
+        if(record.note.isNotBlank())Text("来源备注：${record.note}",color=Muted)
+        Text("这里只展示这一行已保存的来源，不导出完整原文件；它是导入时的凭证，不会替换当前交易。",color=Muted)
+        val raw=evidence.raw
+        if(raw.isNullOrEmpty())Text("这一行没有可展示的原文字段，可能已隐藏或未保留；导入时的记录仍保留。",color=Muted)
+        else raw.forEach { (name,value) -> Text("$name：$value",color=Muted) }
     }
 }
