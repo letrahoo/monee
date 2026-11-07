@@ -81,7 +81,9 @@ fun App() {
     val user=auth?.user
     MaterialTheme(colors=lightColors(primary=Pine,background=Color(0xFFF6F7F2),onBackground=Ink,onSurface=Ink),
         typography=Typography(defaultFontFamily=FontFamily(Font(Res.font.noto_sans_sc)))) {
-        if(user?.allowed==true&&connectionError==null) {
+        // A failed status poll keeps a verified session's workspace mounted;
+        // its pages show the connection error in place and offer 重试.
+        if(user?.allowed==true) {
             key(user.id) {
                 if(managing&&user.role=="superadmin") AccessManagement(api,user,busy,actionError,onBack={managing=false},onLogout=::logout,onAccessLost=::accessLost)
                 else WorkspaceScreen(api,user,busy,actionError,onLogout=::logout,onManage={managing=true},onAccessLost=::accessLost)

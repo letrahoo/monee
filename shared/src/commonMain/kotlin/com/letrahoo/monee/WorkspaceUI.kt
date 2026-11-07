@@ -57,7 +57,7 @@ internal fun WorkspaceScreen(api:LedgerApi,user:AuthUser,authBusy:Boolean,authEr
      else if(list.size==1){selected=list.single().id;lastLedger=selected}
      initialSelectionDone=true
     }
-   }catch(e:CancellationException){throw e}catch(e:Exception){selected=null;if(e is LedgerException&&e.accessLost)onAccessLost()else error=e.message}
+   }catch(e:CancellationException){throw e}catch(e:Exception){if(e is LedgerException&&e.accessLost){selected=null;onAccessLost()}else error=e.message} // transient poll failure keeps the open ledger
    delay(5000)
   }
  }
