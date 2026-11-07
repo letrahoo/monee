@@ -75,9 +75,29 @@ jobs:
           path: dist/*
           if-no-files-found: error
           retention-days: 30
+  retained-v5-compatibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Verify genuine retained v5 binaries
+        id: retained-v5
+        run: ./scripts/verify-retained-v5.sh
+      - name: Upload retained build manifest
+        if: always() && steps.retained-v5.outputs.artifact != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: retained-v5-manifest
+          path: ${{ steps.retained-v5.outputs.artifact }}/manifest.json
+          if-no-files-found: warn
+          retention-days: 14
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, retained-v5-compatibility]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

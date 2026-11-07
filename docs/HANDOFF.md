@@ -1,5 +1,7 @@
 # 开发交接
 
+最新兼容前置：[真实旧v5夹具](plans/retained-v5-compatibility.md)及[验证](verification/retained-v5-compatibility-2026-11-07.md)。固定dab74a5真实源码独立clone构建三个带VCS身份的旧程序/测试，manifest摘要；旧服务实际health5正对照后真实协调器升级empty6、释放lease，再验证旧服务版本拒绝且逻辑schema/rows/version/discovery不变。旧归档6允许、restore6拒绝、新目标回滚5正对照通过。GOENV overlay及浅CI FETCH_HEAD缺失已修复并实测；独立最终审查无P1/P2，完整Go及fresh共享/Web/Mac通过。CI独立必跑兼容job，不将普通Go test当包含build-tag例。下一步直接分离default5/max6并启用全部ledger严格runtime6校验，扩展同一真实old fixture的active/retracted6；然后显式CLI和正常OAuth双端。生产仍5/Open6拒绝、无真实GUI验收/merge/deploy。
+
 最新来源增量：[两侧单行凭证](plans/expense-pair-source-evidence.md)及[验证](verification/expense-pair-source-evidence-2026-11-07.md)。两侧来源可直接展开该行保存字段和导入时规范快照；同stamp先验证关系/source归属，再按import/line/transaction/disposition唯一绑定。缺失原文不伪造，历史快照不替换当前交易；不下载原文件，仍复用整批import-detail响应。完整Go及fresh共享/Web/Mac和独立审查通过，未正常OAuth双端实际验收。下一步直接交付正常schema6能力门禁、显式离线升级与真实旧v5实现兼容fixture；schema5仍未启用，Open6仍拒绝。
 
 最新共享操作增量：[关联面板](plans/expense-pair-shared-ui.md)及[验证](verification/expense-pair-shared-ui-2026-11-07.md)。已接真实API的主副选择→预览→确认→分角色来源列表/历史→二次确认撤回，保留未知请求原key；当前只显示两侧批次文件名/行号，副来源原始凭证明细跳转仍缺。完整Go及fresh共享/Web/Mac检查通过，未正常OAuth双端实际验收。schema5未启用、Open6仍拒绝。下一步先补两侧原文详情导航，再交付正常schema6能力门禁/显式离线升级/实际旧v5兼容fixture，不可仅提升常量。
