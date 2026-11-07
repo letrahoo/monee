@@ -40,7 +40,7 @@ func fail(w http.ResponseWriter, err error) {
 	if errors.As(err, &p) {
 		code, message = p.Code, p.Message
 		status = 422
-		if code == "redaction_unavailable" {
+		if code == "redaction_unavailable" || code == "expense_pair_not_enabled" || code == "expense_pair_unavailable" {
 			status = 503
 		}
 		if code == "conflict" {
@@ -85,6 +85,7 @@ func (a API) Handler() http.Handler {
 	a.registerAnnotations(mux)
 	a.registerCorrections(mux)
 	a.registerRefunds(mux)
+	a.registerExpensePairs(mux)
 	a.registerTransfers(mux)
 	a.registerImportUndo(mux)
 	a.registerReviewQueue(mux)

@@ -126,8 +126,13 @@ func (s *Store) expensePairFinish(tx *sql.Tx, key, requestHash string, receipt e
 
 // Private metadata transaction only. It changes no original transaction,
 // posting, source link, payment identity, source snapshot or transaction version.
-// No route calls it; effective readers and mutation guards are NOT activated.
+// The public command wrapper additionally requires capability6 in this same
+// authorized transaction; normal schema5 startup still cannot enable it.
 func (s *Store) confirmExpensePair(in expensePairConfirmInput, key string) (expensePairReceipt, error) {
+	return s.confirmExpensePairCommand(in, key, false)
+}
+
+func (s *Store) confirmExpensePairCommand(in expensePairConfirmInput, key string, requireCapability bool) (expensePairReceipt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !associationAccountingID(s.actorID) {
@@ -140,6 +145,11 @@ func (s *Store) confirmExpensePair(in expensePairConfirmInput, key string) (expe
 	defer tx.Rollback()
 	if err = s.expensePairAuthorize(tx); err != nil {
 		return expensePairReceipt{}, err
+	}
+	if requireCapability {
+		if err = expensePairRequireCapability(tx); err != nil {
+			return expensePairReceipt{}, err
+		}
 	}
 	reason, validReason := expensePairReason(in.Reason)
 	if !expensePairKey(key) || !validReason || in.LedgerVersion < 0 || in.PrimaryVersion < 1 || in.SecondaryVersion < 1 || !associationAccountingID(in.PrimaryTransactionID) || !associationAccountingID(in.SecondaryTransactionID) || in.PrimaryTransactionID == in.SecondaryTransactionID {
@@ -228,6 +238,10 @@ func (s *Store) confirmExpensePair(in expensePairConfirmInput, key string) (expe
 // Withdrawal changes metadata membership only. It neither restores nor rewrites
 // a member's financial fields, and cannot bypass active-state corruption checks.
 func (s *Store) withdrawExpensePair(in expensePairWithdrawInput, key string) (expensePairReceipt, error) {
+	return s.withdrawExpensePairCommand(in, key, false)
+}
+
+func (s *Store) withdrawExpensePairCommand(in expensePairWithdrawInput, key string, requireCapability bool) (expensePairReceipt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !associationAccountingID(s.actorID) {
@@ -240,6 +254,11 @@ func (s *Store) withdrawExpensePair(in expensePairWithdrawInput, key string) (ex
 	defer tx.Rollback()
 	if err = s.expensePairAuthorize(tx); err != nil {
 		return expensePairReceipt{}, err
+	}
+	if requireCapability {
+		if err = expensePairRequireCapability(tx); err != nil {
+			return expensePairReceipt{}, err
+		}
 	}
 	reason, validReason := expensePairReason(in.Reason)
 	if !expensePairKey(key) || !validReason || in.LedgerVersion < 0 || in.DecisionVersion < 1 || !associationAccountingID(in.DecisionID) {

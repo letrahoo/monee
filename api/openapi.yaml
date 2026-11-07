@@ -7,7 +7,8 @@ info:
     System admission is separate from ledger ownership/editor/viewer memberships.
     All data access is enforced by Go. Feishu is reserved for a future provider adapter.
     Supports local loopback HTTP and configured HTTPS same-origin deployment. Cookie-authenticated
-    writes require X-Monee-CSRF. Application database schema version 3.
+    writes require X-Monee-CSRF. Application database schema version 5. Expense-pair
+    command routes remain disabled (503) until an explicit complete schema6 capability delivery.
 servers:
 - url: http://127.0.0.1:4173
 security:
@@ -43,7 +44,7 @@ paths:
                     const: 1
                   schemaVersion:
                     type: integer
-                    const: 3
+                    const: 5
                   instanceId:
                     type: string
                     pattern: '^[0-9a-f]{64}$'
@@ -53,6 +54,116 @@ paths:
                     const: 1
         default:
           "$ref": "#/components/responses/Error"
+  "/api/v1/expense-pairs/preview":
+    post:
+      operationId: previewExpensePair
+      description: |
+        Owner/editor only. Explicit primary and secondary IDs and versions, one fresh
+        authorized transaction, full native evidence checks. Pair gross expense only,
+        not whole-ledger or account balance. No write/reservation and no proof that
+        two source documents describe the same economic event. Current schema5 returns
+        503 expense_pair_not_enabled; normal startup cannot open schema6 yet.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref": "#/components/schemas/ExpensePairPreviewInput"}
+      responses:
+        '200':
+          description: Fresh pair-local preview; confirm must recheck versions/evidence.
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/ExpensePairPreview"}
+        default: {"$ref": "#/components/responses/Error"}
+  "/api/v1/expense-pairs":
+    post:
+      operationId: confirmExpensePair
+      description: |
+        Owner/editor only, capability6 required in the same authorized write transaction.
+        Retains original IDs, postings and source records. Actor-scoped idempotency is
+        checked after current authorization; changed input/key is conflict. A withdrawn
+        decision cannot be resurrected by its old confirm key. Currently disabled on5.
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema: {type: string, minLength: 16, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {"$ref": "#/components/schemas/ExpensePairConfirmInput"}
+      responses:
+        '201':
+          description: Confirmed receipt or authorized same-key replay.
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/ExpensePairReceipt"}
+        default: {"$ref": "#/components/responses/Error"}
+  "/api/v1/transactions/{id}/expense-pairs":
+    parameters:
+    - in: path
+      name: id
+      required: true
+      schema: {type: string}
+    get:
+      operationId: transactionExpensePairs
+      description: |
+        Any current member, including viewer. Receipts for active and retracted
+        decisions containing the transaction, ordered by decision ID. Preserves
+        raw evidence in the existing transaction-source routes, never returns private
+        frozen snapshots. Corrupt metadata fails closed. Currently disabled on5.
+      responses:
+        '200':
+          description: Current ledger version plus stable decision history.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ledgerVersion, decisions]
+                properties:
+                  ledgerVersion: {type: integer, format: int64}
+                  decisions:
+                    type: array
+                    items: {"$ref": "#/components/schemas/ExpensePairReceipt"}
+        default: {"$ref": "#/components/responses/Error"}
+  "/api/v1/expense-pairs/{id}/withdraw":
+    parameters:
+    - in: path
+      name: id
+      required: true
+      schema: {type: string}
+    post:
+      operationId: withdrawExpensePair
+      description: |
+        Current owner/editor may withdraw, not only the historical creator. Same
+        authorized transaction checks capability6, ledger/decision versions and
+        actor-scoped idempotency. Restores both original records to effective totals.
+        Does not undo imports or rewrite evidence. Currently disabled on5.
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema: {type: string, minLength: 16, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ledgerVersion, decisionVersion, reason]
+              properties:
+                ledgerVersion: {type: integer, format: int64, minimum: 0}
+                decisionVersion: {type: integer, format: int64, minimum: 1}
+                reason: {type: string}
+      responses:
+        '200':
+          description: Withdrawn receipt or authorized same-key replay.
+          content:
+            application/json:
+              schema: {"$ref": "#/components/schemas/ExpensePairReceipt"}
+        default: {"$ref": "#/components/responses/Error"}
   "/api/v1/dashboard":
     get:
       operationId: dashboard
@@ -1742,6 +1853,53 @@ components:
       type: string
       pattern: "^-?[0-9]+$"
       description: Signed 64-bit integer fen as a decimal string. Never a JSON number.
+    ExpensePairPreviewInput:
+      type: object
+      additionalProperties: false
+      required: [ledgerVersion, primaryTransactionId, secondaryTransactionId, primaryVersion, secondaryVersion]
+      properties:
+        ledgerVersion: {type: integer, format: int64, minimum: 0}
+        primaryTransactionId: {type: string}
+        secondaryTransactionId: {type: string}
+        primaryVersion: {type: integer, format: int64, minimum: 1}
+        secondaryVersion: {type: integer, format: int64, minimum: 1}
+    ExpensePairConfirmInput:
+      type: object
+      additionalProperties: false
+      required: [ledgerVersion, primaryTransactionId, secondaryTransactionId, primaryVersion, secondaryVersion, reason]
+      properties:
+        ledgerVersion: {type: integer, format: int64, minimum: 0}
+        primaryTransactionId: {type: string}
+        secondaryTransactionId: {type: string}
+        primaryVersion: {type: integer, format: int64, minimum: 1}
+        secondaryVersion: {type: integer, format: int64, minimum: 1}
+        reason: {type: string}
+    ExpensePairPreview:
+      type: object
+      required: [ledgerVersion, primaryId, secondaryId, primaryVersion, secondaryVersion, currency, pairGrossBeforeMinor, pairGrossAfterMinor, pairGrossDeltaMinor]
+      properties:
+        ledgerVersion: {type: integer, format: int64}
+        primaryId: {type: string}
+        secondaryId: {type: string}
+        primaryVersion: {type: integer, format: int64}
+        secondaryVersion: {type: integer, format: int64}
+        currency: {type: string, const: CNY}
+        pairGrossBeforeMinor: {type: string, pattern: '^[0-9]+$'}
+        pairGrossAfterMinor: {type: string, pattern: '^[0-9]+$'}
+        pairGrossDeltaMinor: {type: string, pattern: '^-[0-9]+$'}
+    ExpensePairReceipt:
+      type: object
+      required: [id, version, status, ledgerVersion, primaryId, secondaryId]
+      properties:
+        id: {type: string}
+        version: {type: integer, format: int64, minimum: 1}
+        status: {type: string, enum: [active, retracted]}
+        ledgerVersion:
+          type: integer
+          format: int64
+          description: Ledger version at this decision revision, not necessarily the current version.
+        primaryId: {type: string}
+        secondaryId: {type: string}
     TransactionInput:
       type: object
       additionalProperties: false

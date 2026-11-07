@@ -1,5 +1,7 @@
 # 开发交接
 
+最新API增量：新增[消费关联授权API](plans/expense-pair-authorized-api.md)及[验证](verification/expense-pair-authorized-api-2026-11-07.md)：预览、确认、按交易查历史、撤回；同事务授权并要求能力6。正常schema5仍503未启用，Open6仍拒绝，无共享UI/关联badge，未双端实际验收。隔离HTTP已跑通native导入→预览→确认/重放→只计一次→历史→撤回恢复两行。下一步推进正常能力门禁与共享UI竖切，不再添加不存在的posting读取脚手架。
+
 最新私有增量：实现[离线升级协调器](plans/expense-pair-offline-upgrade.md)及[隔离验证](verification/expense-pair-offline-upgrade-2026-11-07.md)。仅未导出方法、无正常调用入口；持租约精确v5空表校验→备份内容/manifest验证→同步落盘→事务内重验/切换6。正常生产仍schema5并拒绝6/非空关联表，未实际升级或开放功能。未来不能直接把生产常量改6就称交付。
 
 更新：2026-11-07。新增[共享目录租约](plans/shared-directory-lease.md)及[验证](verification/shared-directory-lease-2026-11-07.md)：正常启动持显式 Lease，恢复复用同一 service.lock 协议，旧库迁移复用已有租约以避免自冲突。仅为独占升级前置条件，尚未升级 schema 或解除非空关联门禁。退款摘要也已加同事务保护，见[退款摘要验证](verification/expense-pair-refund-summary-2026-11-07.md)。

@@ -1,7 +1,7 @@
 package ledger
 
-// Private metadata capability only. No normal route or financial reader calls
-// this lifecycle, and the schema-five Open/startup fence remains in force.
+// Lifecycle storage contracts. Public command aliases require capability6;
+// normal schema-five Open/startup still fences all populated decisions.
 type expensePairConfirmInput struct {
 	LedgerVersion          int64  `json:"ledgerVersion"`
 	PrimaryTransactionID   string `json:"primaryTransactionId"`
