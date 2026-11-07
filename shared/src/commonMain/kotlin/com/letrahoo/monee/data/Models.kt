@@ -26,10 +26,12 @@ data class Dashboard(
     val page: Int, val pageSize: Int, val categories: List<CategoryTotal>,
     val transactions: List<LedgerTransaction>,
     val grossExpenseMinor:String=expenseMinor, val refundMinor:String="0",
+    val filterOptions:DashboardFilterOptions=DashboardFilterOptions(),
 )
 
 @Serializable data class RefundInput(val version:Long,val date:String,val amount:String,val currency:String="CNY",val account:String="",val note:String="")
-@Serializable data class RefundSummary(val original:LedgerTransaction,val refundedMinor:String,val remainingMinor:String,val refunds:List<LedgerTransaction>)
+@Serializable data class RefundAccountOption(val id:String,val name:String)
+@Serializable data class RefundSummary(val original:LedgerTransaction,val refundedMinor:String,val remainingMinor:String,val refunds:List<LedgerTransaction>,val accounts:List<RefundAccountOption> = emptyList())
 data class RefundSubmission(val originalId:String,val input:RefundInput,val key:String)
 
 @Serializable data class ImportRow(val line: Int, val record: LedgerTransaction, val status: String, val message: String)

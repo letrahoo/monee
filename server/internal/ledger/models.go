@@ -58,23 +58,32 @@ type CategoryTotal struct {
 	GrossExpenseMinor string `json:"grossExpenseMinor"`
 	RefundMinor       string `json:"refundMinor"`
 }
+type DashboardAccountOption struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+type DashboardFilterOptions struct {
+	Accounts   []DashboardAccountOption `json:"accounts"`
+	Categories []string                 `json:"categories"`
+}
 type Dashboard struct {
-	LedgerID          string          `json:"ledgerId"`
-	Version           int64           `json:"version"`
-	Month             string          `json:"month"`
-	Today             string          `json:"today"`
-	Months            []string        `json:"months"`
-	IncomeMinor       string          `json:"incomeMinor"`
-	ExpenseMinor      string          `json:"expenseMinor"`
-	GrossExpenseMinor string          `json:"grossExpenseMinor"`
-	RefundMinor       string          `json:"refundMinor"`
-	SourceCount       int             `json:"sourceCount"`
-	TotalCount        int             `json:"totalCount"`
-	FilteredCount     int             `json:"filteredCount"`
-	Page              int             `json:"page"`
-	PageSize          int             `json:"pageSize"`
-	Categories        []CategoryTotal `json:"categories"`
-	Transactions      []Transaction   `json:"transactions"`
+	LedgerID          string                 `json:"ledgerId"`
+	Version           int64                  `json:"version"`
+	Month             string                 `json:"month"`
+	Today             string                 `json:"today"`
+	Months            []string               `json:"months"`
+	IncomeMinor       string                 `json:"incomeMinor"`
+	ExpenseMinor      string                 `json:"expenseMinor"`
+	GrossExpenseMinor string                 `json:"grossExpenseMinor"`
+	RefundMinor       string                 `json:"refundMinor"`
+	SourceCount       int                    `json:"sourceCount"`
+	TotalCount        int                    `json:"totalCount"`
+	FilteredCount     int                    `json:"filteredCount"`
+	Page              int                    `json:"page"`
+	PageSize          int                    `json:"pageSize"`
+	Categories        []CategoryTotal        `json:"categories"`
+	Transactions      []Transaction          `json:"transactions"`
+	FilterOptions     DashboardFilterOptions `json:"filterOptions"`
 }
 type PreviewRow struct {
 	Line    int         `json:"line"`

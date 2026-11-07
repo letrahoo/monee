@@ -14,13 +14,27 @@ internal fun expenseShare(gross:String,total:String):Float {
     return ((gross.toLongOrNull() ?: 0L).toDouble()/denominator.toDouble()).toFloat().coerceIn(0f,1f)
 }
 
+// Refunds may only return to fund accounts the Go service lists for this ledger.
+// The original account is the default; an older service without the list only
+// offers the original account so no free-typed name can reach the ledger.
+internal fun refundAccountChoices(summary:RefundSummary):List<String> =
+    summary.accounts.map { it.name }.distinct().ifEmpty { listOf(summary.original.account) }
+
+internal fun defaultRefundAccount(summary:RefundSummary):String =
+    refundAccountChoices(summary).let { choices -> if(summary.original.account in choices) summary.original.account else choices.first() }
+
+internal fun refundAccountLabel(name:String):String = name.ifBlank { "未填写账户" }
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun RefundPanel(summary:RefundSummary,today:String,readOnly:Boolean,working:Boolean,
     pending:RefundSubmission?,onSubmit:(RefundInput)->Unit,onRefresh:()->Unit,onClose:()->Unit) {
     val original=summary.original
     var date by remember(original.id){mutableStateOf(today)}
     var amount by remember(original.id){mutableStateOf("")}
-    var account by remember(original.id){mutableStateOf(original.account)}
+    val accountChoices=refundAccountChoices(summary)
+    var account by remember(original.id){mutableStateOf(defaultRefundAccount(summary))}
+    val chosenAccount=if(account in accountChoices)account else defaultRefundAccount(summary)
     var note by remember(original.id){mutableStateOf("")}
     val frozen=pending?.input
     val locked=working||pending!=null
@@ -39,10 +53,16 @@ internal fun RefundPanel(summary:RefundSummary,today:String,readOnly:Boolean,wor
             Divider()
             OutlinedTextField(frozen?.date ?: date,{date=it},label={Text("退款日期（YYYY-MM-DD）")},singleLine=true,enabled=!locked,modifier=Modifier.fillMaxWidth())
             OutlinedTextField(frozen?.amount ?: amount,{amount=it},label={Text("退款金额（元）")},singleLine=true,enabled=!locked,modifier=Modifier.fillMaxWidth())
-            OutlinedTextField(frozen?.account ?: account,{account=it},label={Text("退回账户")},singleLine=true,enabled=!locked,modifier=Modifier.fillMaxWidth())
+            Text("退回账户",color=Ink)
+            FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                val selectedAccount=frozen?.account ?: chosenAccount
+                accountChoices.forEach { choice ->
+                    WorkbenchChoice(refundAccountLabel(choice),selectedAccount==choice,!locked){account=choice}
+                }
+            }
             OutlinedTextField(frozen?.note ?: note,{note=it},label={Text("退款备注")},enabled=!locked,modifier=Modifier.fillMaxWidth())
             if(pending!=null)Text("上次保存结果尚未确认。重试使用同一个请求，不会重复记账。",color=Muted)
-            Button(onClick={onSubmit(frozen ?: RefundInput(original.version,date.trim(),amount.trim(),original.currency,account.trim(),note.trim()))},enabled=!working&&(pending!=null||date.isNotBlank()&&correctionMinorInput(amount.trim())!=null)) {
+            Button(onClick={onSubmit(frozen ?: RefundInput(original.version,date.trim(),amount.trim(),original.currency,chosenAccount,note.trim()))},enabled=!working&&(pending!=null||date.isNotBlank()&&correctionMinorInput(amount.trim())!=null)) {
                 Text(if(pending!=null)"重试确认退款"else"保存退款")
             }
         }

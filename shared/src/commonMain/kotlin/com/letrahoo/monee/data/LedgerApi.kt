@@ -136,8 +136,11 @@ class LedgerApi {
     suspend fun setAccess(entry:AccessEntry):AccessEntry = apiJson.decodeFromString(request("admin/allowlist/"+entry.id,HttpMethod.Patch,apiJson.encodeToString(AccessChange(!entry.enabled,entry.version))))
     suspend fun accessHistory():AccessHistory = apiJson.decodeFromString(request("admin/audit"))
 
-    suspend fun dashboard(ledgerId:String,month: String, query: String, page: Int): Dashboard =
-        apiJson.decodeFromString(request("dashboard", parameters = mapOf("month" to month, "q" to query, "page" to page.toString()),ledgerId=ledgerId))
+    suspend fun dashboard(ledgerId:String,month: String, query: String, page: Int, filters:DashboardFilters=DashboardFilters()): Dashboard =
+        apiJson.decodeFromString(request("dashboard", parameters = mapOf("month" to month, "q" to query, "page" to page.toString(),
+            "type" to filters.type, "accountId" to filters.accountId, "category" to filters.category),ledgerId=ledgerId))
+    suspend fun annual(ledgerId:String,year:String=""):AnnualReport =
+        apiJson.decodeFromString(request("annual",parameters=mapOf("year" to year),ledgerId=ledgerId))
     suspend fun preview(ledgerId:String,filename: String, csv: String): ImportPreview =
         apiJson.decodeFromString(request("imports/preview", HttpMethod.Post, apiJson.encodeToString(ImportRequest(filename,csv)),ledgerId=ledgerId))
     suspend fun annotate(ledgerId:String,id:String,input:AnnotationInput):LedgerTransaction = apiJson.decodeFromString(request("transactions/$id/annotation",HttpMethod.Patch,apiJson.encodeToString(input),ledgerId=ledgerId))

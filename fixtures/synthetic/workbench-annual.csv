@@ -1,0 +1,16 @@
+date,type,amount,currency,merchant,category,source,account,external_id,note
+2025-12-15,income,30.00,CNY,合成工资十二月,工资,合成工作台标准CSV,合成钱包A,SYNTH-WB-ANNUAL-001,纯合成验收数据
+2025-12-15,expense,12.50,CNY,合成咖啡十二月,餐饮,合成工作台标准CSV,合成钱包B,SYNTH-WB-ANNUAL-002,纯合成验收数据
+2026-01-10,income,40.00,CNY,合成工资一月,工资,合成工作台标准CSV,合成钱包A,SYNTH-WB-ANNUAL-003,纯合成验收数据
+2026-01-10,expense,15.00,CNY,合成咖啡一月,餐饮,合成工作台标准CSV,合成钱包A,SYNTH-WB-ANNUAL-004,纯合成验收数据
+2026-01-11,expense,25.00,CNY,合成书店一月,学习,合成工作台标准CSV,合成钱包B,SYNTH-WB-ANNUAL-005,纯合成验收数据
+2026-09-01,income,60.00,CNY,合成工资九月,工资,合成工作台标准CSV,合成钱包A,SYNTH-WB-ANNUAL-006,纯合成验收数据
+2026-09-14,income,10.00,CNY,合成奖金九月,奖金,合成工作台标准CSV,合成钱包B,SYNTH-WB-ANNUAL-007,纯合成验收数据
+2026-09-14,expense,12.50,CNY,合成咖啡九月A,餐饮,合成工作台标准CSV,合成钱包A,SYNTH-WB-ANNUAL-008,纯合成验收数据 咖啡组
+2026-09-14,expense,7.50,CNY,合成咖啡九月B,餐饮,合成工作台标准CSV,合成钱包B,SYNTH-WB-ANNUAL-009,纯合成验收数据 咖啡组
+2026-09-14,expense,20.00,CNY,合成书店九月,学习,合成工作台标准CSV,合成钱包A,SYNTH-WB-ANNUAL-010,纯合成验收数据
+2026-09-15,expense,5.00,CNY,合成公交九月,交通,合成工作台标准CSV,合成钱包B,SYNTH-WB-ANNUAL-011,纯合成验收数据
+2026-10-01,income,20.00,CNY,合成奖金十月,奖金,合成工作台标准CSV,合成钱包B,SYNTH-WB-ANNUAL-012,纯合成验收数据
+2026-10-14,expense,8.00,CNY,合成咖啡十月,餐饮,合成工作台标准CSV,合成钱包A,SYNTH-WB-ANNUAL-013,纯合成验收数据
+2026-10-14,expense,6.00,CNY,合成公交十月,交通,合成工作台标准CSV,合成钱包B,SYNTH-WB-ANNUAL-014,纯合成验收数据
+2026-10-15,expense,4.00,CNY,合成书店十月,学习,合成工作台标准CSV,合成钱包A,SYNTH-WB-ANNUAL-015,纯合成验收数据
