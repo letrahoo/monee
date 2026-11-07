@@ -54,6 +54,9 @@ data class ExpensePairReceipt(
 @Serializable
 data class ExpensePairDetail(val ledgerVersion: Long, val decisions: List<ExpensePairReceipt>)
 
+// A client-side result, not a merged source record or persisted transaction.
+data class ExpensePairSources(val primary: List<TransactionSource>, val secondary: List<TransactionSource>)
+
 // Public, immutable scope permits a future UI to display exactly which account,
 // origin and ledger owns an uncertain write. Never persist a credential here.
 data class ExpensePairScope(val origin: String, val userId: String, val ledgerId: String)

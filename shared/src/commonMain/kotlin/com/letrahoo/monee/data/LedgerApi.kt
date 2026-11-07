@@ -95,6 +95,20 @@ class LedgerApi internal constructor(
         if(!result.matches(transactionId))throw LedgerException("消费关联详情响应无效，请刷新后重试","expense_pair_contract")
         return result
     }
+    suspend fun expensePairSources(ledgerId:String,receipt:ExpensePairReceipt):ExpensePairSources {
+        require(receipt.valid()) { "关联记录无效" }
+        val stamp=expensePairStamp(ledgerId)
+        // Revalidate the relationship in this scope before reading either side.
+        // Both source reads use one pinned origin/session, never generic discovery.
+        val detail=apiJson.decodeFromString<ExpensePairDetail>(expensePairRequest(stamp,"transactions/${receipt.primaryId}/expense-pairs"))
+        if(!detail.matches(receipt.primaryId) || receipt !in detail.decisions)
+            throw LedgerException("关联记录已变化，请刷新详情后重试","expense_pair_contract")
+        val primary=apiJson.decodeFromString<List<TransactionSource>>(expensePairRequest(stamp,"transactions/${receipt.primaryId}/sources"))
+        val secondary=apiJson.decodeFromString<List<TransactionSource>>(expensePairRequest(stamp,"transactions/${receipt.secondaryId}/sources"))
+        if(!expensePairStampCurrent(stamp))throw expensePairScopeChanged()
+        return ExpensePairSources(primary,secondary)
+    }
+
     suspend fun confirmExpensePair(ledgerId:String,submission:ExpensePairConfirmSubmission):ExpensePairReceipt =
         submitExpensePair(ledgerId,submission,"expense-pairs",apiJson.encodeToString(submission.input))
     suspend fun withdrawExpensePair(ledgerId:String,submission:ExpensePairWithdrawSubmission):ExpensePairReceipt =
