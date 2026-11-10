@@ -13,12 +13,12 @@ import (
 	"github.com/letrahoo/monee/server/internal/storage"
 )
 
-func TestCurrentSchema5RejectsFixedSchema6(t *testing.T) {
-	// This is deliberately pinned: raising production support requires replacing
-	// this check with an actual retained-v5 compatibility fixture, not changing
-	// a moving SchemaVersion+1 sentinel and silently losing the old boundary.
-	if storage.SchemaVersion != 5 {
-		t.Fatal("retain real schema5 compatibility coverage before enabling a new version")
+func TestCurrentMaxSchema6RejectsFixedSchema7(t *testing.T) {
+	// The actual pre-upgrade binary still rejects schema 6 in the mandatory
+	// immutable old-v5 checkout fixture. This current-binary boundary is fixed at
+	// 7 (not a moving +1 sentinel), while automatic migrations must stay at 5.
+	if storage.SchemaVersion != 5 || storage.MaxSupportedSchemaVersion != 6 {
+		t.Fatal("retain default schema5, explicit schema6, and real old-v5 compatibility coverage")
 	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "future.db")
@@ -26,7 +26,7 @@ func TestCurrentSchema5RejectsFixedSchema6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec("CREATE TABLE marker(value TEXT); INSERT INTO marker VALUES('unchanged'); PRAGMA user_version=6"); err != nil {
+	if _, err = db.Exec("CREATE TABLE marker(value TEXT); INSERT INTO marker VALUES('unchanged'); PRAGMA user_version=7"); err != nil {
 		db.Close()
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestCurrentSchema5RejectsFixedSchema6(t *testing.T) {
 	var p *ledger.Problem
 	if opened != nil {
 		opened.Close()
-		t.Fatal("ledger accepted fixed schema6")
+		t.Fatal("ledger accepted fixed schema7")
 	}
 	if !errors.As(err, &p) || p.Code != "future_schema" {
 		t.Fatal(err)
@@ -43,12 +43,12 @@ func TestCurrentSchema5RejectsFixedSchema6(t *testing.T) {
 	access, err := auth.Open(path, nil)
 	if access != nil {
 		access.Close()
-		t.Fatal("auth accepted fixed schema6")
+		t.Fatal("auth accepted fixed schema7")
 	}
 	if err == nil || !strings.Contains(err.Error(), "newer application") {
 		t.Fatal(err)
 	}
-	if v, e := storage.Check(path); e != nil || v != 6 {
+	if v, e := storage.Check(path); e != nil || v != 7 {
 		t.Fatal(v, e)
 	}
 	bundle := filepath.Join(dir, "backup")

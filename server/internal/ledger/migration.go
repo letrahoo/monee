@@ -153,10 +153,9 @@ func expensePairSchemaObjects() map[string]expensePairSchemaObject {
 	return expected
 }
 
-// This is an Open/startup capability fence, not a decision semantic validator or
-// protection against an external/future writer after this process has opened.
-// Remove it only with complete effective readers and all mutation guards, using
-// an exclusive version upgrade. Even retracted or corrupt rows are unsupported.
+// The exact empty-v5 foundation is both the normal default startup boundary and
+// the offline upgrade source contract. Runtime6 has a separate semantic gate;
+// do not weaken this check to accept populated, retracted, or future data.
 func checkExpensePairFoundation(db *sql.DB) error {
 	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -171,6 +170,18 @@ func checkExpensePairFoundationTx(tx *sql.Tx) error {
 	if err := tx.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 5 {
 		return expensePairFoundationUnavailable()
 	}
+	if err := checkExpensePairStructureTx(tx); err != nil {
+		return err
+	}
+	var anyRow bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM expense_pair_decisions) OR EXISTS(SELECT 1 FROM expense_pair_members) OR EXISTS(SELECT 1 FROM expense_pair_revisions)`).Scan(&anyRow); err != nil || anyRow {
+		return expensePairFoundationUnavailable()
+	}
+	return nil
+}
+
+// Exact DDL only: callers separately enforce either empty5 or strict runtime6.
+func checkExpensePairStructureTx(tx *sql.Tx) error {
 	expected := expensePairSchemaObjects()
 	if len(expected) != 4 {
 		return expensePairFoundationUnavailable()
@@ -202,10 +213,6 @@ func checkExpensePairFoundationTx(tx *sql.Tx) error {
 	rowErr := rows.Err()
 	closeErr := rows.Close()
 	if rowErr != nil || closeErr != nil || len(seen) != len(expected) {
-		return expensePairFoundationUnavailable()
-	}
-	var anyRow bool
-	if err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM expense_pair_decisions) OR EXISTS(SELECT 1 FROM expense_pair_members) OR EXISTS(SELECT 1 FROM expense_pair_revisions)`).Scan(&anyRow); err != nil || anyRow {
 		return expensePairFoundationUnavailable()
 	}
 	return nil

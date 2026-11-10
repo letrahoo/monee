@@ -176,7 +176,7 @@ func restore(directory, target string) error {
 	if e != nil {
 		return e
 	}
-	if v > SchemaVersion {
+	if v > MaxSupportedSchemaVersion {
 		return fmt.Errorf("backup requires a newer application")
 	}
 	return copyRestoredDatabase(filepath.Join(directory, "database.sqlite3"), target)

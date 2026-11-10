@@ -293,7 +293,7 @@ func TestFutureSchemaRejected(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, err := s.db.Exec(fmt.Sprintf("PRAGMA user_version=%d", storage.SchemaVersion+1)); err != nil {
+	if _, err := s.db.Exec(fmt.Sprintf("PRAGMA user_version=%d", storage.MaxSupportedSchemaVersion+1)); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()

@@ -86,7 +86,12 @@ func TestLoopbackAuthAndOriginBoundary(t *testing.T) {
 }
 
 func TestProductionOriginBoundary(t *testing.T) {
-	h := API{Host: "finance.letra.xin", Origin: "https://finance.letra.xin"}.Handler()
+	s, err := ledger.Open(filepath.Join(t.TempDir(), "application.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	h := API{Store: s, Host: "finance.letra.xin", Origin: "https://finance.letra.xin"}.Handler()
 	for _, tc := range []struct {
 		host, origin string
 		status       int

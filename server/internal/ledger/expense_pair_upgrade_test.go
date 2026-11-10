@@ -57,10 +57,15 @@ func TestExpensePairOfflineUpgradeSuccess(t *testing.T) {
 		next.Close()
 		t.Fatal("upgrade released caller lease")
 	}
-	if s, e := Open(filepath.Join(dir, "application.db")); e == nil {
-		s.Close()
-		t.Fatal("normal Open enabled version6")
+	s, e := Open(filepath.Join(dir, "application.db"))
+	if e != nil {
+		t.Fatal("normal Open rejected valid runtime6", e)
 	}
+	if version, versionErr := s.SchemaVersion(); versionErr != nil || version != 6 {
+		s.Close()
+		t.Fatal("unexpected runtime6 version", version, versionErr)
+	}
+	s.Close()
 	// Repeat rejects before creating a second backup.
 	if _, e = upgradeExpensePairOffline(context.Background(), l, dir, "second"); e == nil {
 		t.Fatal("repeated upgrade")
@@ -72,7 +77,7 @@ func TestExpensePairOfflineUpgradeSuccess(t *testing.T) {
 	if e = storage.Restore(backup, restored); e != nil {
 		t.Fatal(e)
 	}
-	s, e := Open(restored)
+	s, e = Open(restored)
 	if e != nil {
 		t.Fatal(e)
 	}

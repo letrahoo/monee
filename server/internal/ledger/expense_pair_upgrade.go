@@ -12,11 +12,15 @@ import (
 	"github.com/letrahoo/monee/server/internal/storage"
 )
 
-// Private, offline-only capability transition. No normal startup, CLI or HTTP
-// caller enables it. Production SchemaVersion remains 5, so Open rejects its
-// version6 output until the complete capability delivery is ready.
+// UpgradeExpensePairOffline is an explicit offline capability transition. It
+// never runs from normal startup or HTTP. Default creation/migration stays5;
+// normal Open6 validates the entire database before making it available.
 // The owner must first stop every old connection; a lease cannot enforce that
 // against noncooperating clients. backupName is a new child of the leased dir.
+func UpgradeExpensePairOffline(ctx context.Context, lease *dirlease.Lease, dir, backupName string) (string, error) {
+	return upgradeExpensePairOffline(ctx, lease, dir, backupName)
+}
+
 func upgradeExpensePairOffline(ctx context.Context, lease *dirlease.Lease, dir, backupName string) (string, error) {
 	return upgradeExpensePairWithSnapshot(ctx, lease, dir, backupName, storage.Snapshot)
 }

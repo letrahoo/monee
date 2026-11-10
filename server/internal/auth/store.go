@@ -119,7 +119,7 @@ func (s *Store) initialize(seeds []Selector) error {
 	if err = tx.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version > storage.SchemaVersion {
+	if version > storage.MaxSupportedSchemaVersion {
 		return errors.New("auth database requires a newer application")
 	}
 	var hasAuth int

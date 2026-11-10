@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-// These tests call private metadata scaffolding, never an HTTP/UI decision path.
-// Normal Open must still refuse populated foundation tables. Accounting remains
-// two ordinary expenses until a future complete effective-projection delivery.
+// These tests intentionally use private metadata scaffolding on default5.
+// Normal Open5 still refuses populated foundation tables; runtime6 tests use an
+// actual offline upgrade and normal reopen before the public decision path.
 func expensePairLifecycleFixture(t *testing.T) (*Store, *Store, expensePairConfirmInput) {
 	t.Helper()
 	return lifecycleFixtureVariant(t, nativeExpense, "synthetic-lifecycle-wallet")
@@ -37,8 +37,17 @@ func lifecycleMember(t *testing.T, root *Store, role string) *Store {
 
 func lifecycleFixtureVariant(t *testing.T, secondRow, secondWallet string) (*Store, *Store, expensePairConfirmInput) {
 	t.Helper()
-	root := testStore(t)
+	return lifecycleFixtureInStore(t, testStore(t), secondRow, secondWallet)
+}
+
+func lifecycleFixtureInStore(t *testing.T, root *Store, secondRow, secondWallet string) (*Store, *Store, expensePairConfirmInput) {
+	t.Helper()
 	s := lifecycleMember(t, root, "owner")
+	return lifecycleFixtureOwned(t, root, s, secondRow, secondWallet)
+}
+
+func lifecycleFixtureOwned(t *testing.T, root, s *Store, secondRow, secondWallet string) (*Store, *Store, expensePairConfirmInput) {
+	t.Helper()
 	ids := make([]string, 2)
 	imports := make([]string, 2)
 	for i, row := range []string{nativeExpense, secondRow} {

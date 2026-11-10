@@ -56,7 +56,7 @@ func Open(path string) (*Store, error) {
 	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return fail(err)
 	}
-	if version > storage.SchemaVersion {
+	if version > storage.MaxSupportedSchemaVersion {
 		return fail(problem("future_schema", "数据库来自更新版本，拒绝以旧程序写入"))
 	}
 	if version < 5 {
@@ -115,7 +115,20 @@ func Open(path string) (*Store, error) {
 			return fail(err)
 		}
 	}
-	if err = checkExpensePairFoundation(db); err != nil {
+	// Re-read after migrations; normal migration still ends at5. Version6 is
+	// accepted only through its separate whole-database semantic boundary.
+	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return fail(err)
+	}
+	switch version {
+	case 5:
+		err = checkExpensePairFoundation(db)
+	case 6:
+		err = checkExpensePairRuntime(db)
+	default:
+		err = expensePairFoundationUnavailable()
+	}
+	if err != nil {
 		return fail(err)
 	}
 	if err = db.QueryRow("SELECT id,device_id FROM ledgers ORDER BY created_at,id LIMIT 1").Scan(&s.ledgerID, &s.deviceID); err != nil {

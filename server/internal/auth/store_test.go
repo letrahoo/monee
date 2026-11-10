@@ -187,9 +187,27 @@ func TestConcurrentDuplicateAddAndValidation(t *testing.T) {
 		}
 	}
 }
+func TestAuthPreservesContainingSchemaVersion(t *testing.T) {
+	for _, version := range []int{0, 2, 5, 6} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			s := testStore(t)
+			if _, err := s.db.Exec(fmt.Sprintf("PRAGMA user_version=%d", version)); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.initialize(nil); err != nil {
+				t.Fatal(err)
+			}
+			var actual int
+			if err := s.db.QueryRow("PRAGMA user_version").Scan(&actual); err != nil || actual != max(version, 2) {
+				t.Fatal(actual, err)
+			}
+		})
+	}
+}
+
 func TestAuthFutureSchemaIsRejected(t *testing.T) {
 	s := testStore(t)
-	if _, e := s.db.Exec(fmt.Sprintf("PRAGMA user_version=%d", storage.SchemaVersion+1)); e != nil {
+	if _, e := s.db.Exec(fmt.Sprintf("PRAGMA user_version=%d", storage.MaxSupportedSchemaVersion+1)); e != nil {
 		t.Fatal(e)
 	}
 	if e := s.initialize(nil); e == nil {

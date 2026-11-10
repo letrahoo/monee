@@ -171,7 +171,7 @@ func TestExpensePairSchemaOpenRefusesFutureVersion(t *testing.T) {
 	if e := s.db.QueryRow("SELECT file FROM pragma_database_list WHERE name='main'").Scan(&path); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := s.db.Exec(fmt.Sprintf("PRAGMA user_version=%d", storage.SchemaVersion+1)); e != nil {
+	if _, e := s.db.Exec(fmt.Sprintf("PRAGMA user_version=%d", storage.MaxSupportedSchemaVersion+1)); e != nil {
 		t.Fatal(e)
 	}
 	s.Close()

@@ -90,7 +90,16 @@ func (a API) Handler() http.Handler {
 	a.registerImportUndo(mux)
 	a.registerReviewQueue(mux)
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"status": "ok", "apiVersion": 1, "schemaVersion": storage.SchemaVersion, "instanceId": a.InstanceID, "serviceProtocol": a.ServiceProtocol})
+		if a.Store == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable", "code": "schema_unavailable"})
+			return
+		}
+		version, err := a.Store.SchemaVersion()
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable", "code": "schema_unavailable"})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"status": "ok", "apiVersion": 1, "schemaVersion": version, "maxSupportedSchemaVersion": storage.MaxSupportedSchemaVersion, "instanceId": a.InstanceID, "serviceProtocol": a.ServiceProtocol})
 	})
 	if a.Auth != nil {
 		a.Auth.Register(mux)
