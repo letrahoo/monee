@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/letrahoo/monee/server/internal/auth"
+	"github.com/letrahoo/monee/server/internal/dirlease"
 	"github.com/letrahoo/monee/server/internal/ledger"
 	"github.com/letrahoo/monee/server/internal/storage"
 )
@@ -14,7 +15,11 @@ import (
 // Called only while holding the data-directory lock. Both legacy databases are
 // backed up before conversion, and the new application database is published only
 // after every migration and integrity check succeeds.
-func openApplication(dir string, config auth.Config) (*ledger.Store, *auth.Store, error) {
+func openApplication(dir string, config auth.Config, lease *dirlease.Lease) (*ledger.Store, *auth.Store, error) {
+	// The startup owner must retain this lease until both returned stores close.
+	if err := lease.Within(dir, func(owned string) error { dir = owned; return nil }); err != nil {
+		return nil, nil, err
+	}
 	target := filepath.Join(dir, "application.db")
 	if _, err := os.Stat(target); err == nil {
 		l, e := ledger.Open(target)
@@ -46,7 +51,7 @@ func openApplication(dir string, config auth.Config) (*ledger.Store, *auth.Store
 			return nil, nil, e
 		}
 		if name == "monee.db" {
-			if e := storage.Restore(backup, stage); e != nil {
+			if e := storage.RestoreWithLease(lease, backup, stage); e != nil {
 				return nil, nil, e
 			}
 		}

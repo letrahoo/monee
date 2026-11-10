@@ -116,6 +116,10 @@ func (s *Store) previewImportUndo(tx *sql.Tx, id string, restore bool) (ImportUn
 	if e != nil {
 		return out, state, e
 	}
+	locked, e := s.expensePairImportLocked(tx, id)
+	if e != nil {
+		return out, state, e
+	}
 	var income, expense int64
 	for _, src := range sources {
 		t, e := scanRecord(tx.QueryRow("SELECT "+transactionColumns+" FROM transactions WHERE ledger_id=? AND id=?", s.ledgerID, src.id))
@@ -135,6 +139,11 @@ func (s *Store) previewImportUndo(tx *sql.Tx, id string, restore bool) (ImportUn
 		switch {
 		case out.AlreadyApplied:
 			row.Reason = "本次操作已完成，无需重复处理"
+		case locked[t.ID]:
+			row.Reason = "已确认与另一条记录是同一笔消费，请先撤回关联"
+			out.BlockedCount++
+		case len(locked) > 0:
+			row.Reason = "本批含已确认关联的记录，整批暂不处理"
 		case restore:
 			if !owned {
 				row.Reason = "未由本批撤销，保持不变"
@@ -212,6 +221,12 @@ func (s *Store) applyImportUndo(id string, version int64, restore bool) (ImportU
 	}
 	if version != out.LedgerVersion {
 		return out, problem("conflict", "账本已变化，请重新查看影响后确认")
+	}
+	if locked, e := s.expensePairImportLocked(tx, id); e != nil || len(locked) > 0 {
+		if e != nil {
+			return out, e
+		}
+		return out, expensePairLocked()
 	}
 	if restore && out.ChangeCount != len(prior.Changes) {
 		return out, problem("conflict", "撤销后的记录已变化，请核实后再恢复")

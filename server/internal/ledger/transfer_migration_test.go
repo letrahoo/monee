@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/letrahoo/monee/server/internal/storage"
@@ -43,10 +44,10 @@ func TestTransferMigrationPreservesV3RefundAndBackup(t *testing.T) {
 	if count(t, s, "change_log") != changes || count(t, s, "postings") != postings {
 		t.Fatal("migration rewrote accounting")
 	}
-	if v, e := storage.Check(path); e != nil || v != 4 {
+	if v, e := storage.Check(path); e != nil || v != storage.SchemaVersion {
 		t.Fatal(v, e)
 	}
-	backups, err := filepath.Glob(path + ".backup-before-v4-*")
+	backups, err := filepath.Glob(path + ".backup-before-v" + strconv.Itoa(storage.SchemaVersion) + "-*")
 	if err != nil || len(backups) != 1 {
 		t.Fatal(backups, err)
 	}

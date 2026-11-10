@@ -56,8 +56,13 @@ func Open(path string) (*Store, error) {
 	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return fail(err)
 	}
-	if version > storage.SchemaVersion {
+	if version > storage.MaxSupportedSchemaVersion {
 		return fail(problem("future_schema", "数据库来自更新版本，拒绝以旧程序写入"))
+	}
+	if version < 5 {
+		if err = rejectPrematureExpensePairObjects(db); err != nil {
+			return fail(err)
+		}
 	}
 	if version > 0 && version < storage.SchemaVersion {
 		if err = storage.Snapshot(path, path+".backup-before-v"+strconv.Itoa(storage.SchemaVersion)+"-"+newID()); err != nil {
@@ -104,6 +109,27 @@ func Open(path string) (*Store, error) {
 		if err = migrateTransferSchema(db); err != nil {
 			return fail(err)
 		}
+	}
+	if version < 5 {
+		if err = migrateExpensePairSchema(db); err != nil {
+			return fail(err)
+		}
+	}
+	// Re-read after migrations; normal migration still ends at5. Version6 is
+	// accepted only through its separate whole-database semantic boundary.
+	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return fail(err)
+	}
+	switch version {
+	case 5:
+		err = checkExpensePairFoundation(db)
+	case 6:
+		err = checkExpensePairRuntime(db)
+	default:
+		err = expensePairFoundationUnavailable()
+	}
+	if err != nil {
+		return fail(err)
 	}
 	if err = db.QueryRow("SELECT id,device_id FROM ledgers ORDER BY created_at,id LIMIT 1").Scan(&s.ledgerID, &s.deviceID); err != nil {
 		return fail(err)
@@ -273,21 +299,32 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 	if month == "" {
 		month = today[:7]
 	}
-	d := Dashboard{LedgerID: s.ledgerID, Month: month, Today: today, Months: []string{}, IncomeMinor: "0", ExpenseMinor: "0", Page: page, PageSize: PageSize, Categories: []CategoryTotal{}, Transactions: []Transaction{}}
+	d := Dashboard{LedgerID: s.ledgerID, Month: month, Today: today, Months: []string{}, IncomeMinor: "0", ExpenseMinor: "0", Page: page, PageSize: PageSize, Categories: []CategoryTotal{}, Transactions: []Transaction{}, ExpensePairs: []ExpensePairReceipt{}}
 	if !monthPattern.MatchString(month) || month[:4] < "1900" || month[:4] > "2200" {
 		return d, problem("invalid", "月份须为 YYYY-MM")
 	}
 	if page < 1 || page > 100000 || len([]rune(query)) > 100 {
 		return d, problem("invalid", "分页或搜索条件无效")
 	}
-	var err error
-	if err = s.authorize(s.db, false); err != nil {
+	// One read transaction keeps totals, list and confirmed pairs consistent.
+	tx, err := s.db.Begin()
+	if err != nil {
 		return d, err
 	}
-	if d.Version, err = s.version(); err != nil {
+	defer tx.Rollback()
+	if err = s.authorize(tx, false); err != nil {
 		return d, err
 	}
-	rows, err := s.db.Query("SELECT DISTINCT substr(occurred_on,1,7) FROM transactions WHERE ledger_id=? AND deleted_at IS NULL ORDER BY 1 DESC", s.ledgerID)
+	if err = tx.QueryRow("SELECT version FROM ledgers WHERE id=?", s.ledgerID).Scan(&d.Version); err != nil {
+		return d, err
+	}
+	// The secondary of an active same-expense decision is the same payment as
+	// its primary: it is excluded from totals, counts and the list exactly once.
+	suppressed, primaryPairs, err := s.expensePairEffectiveProjection(tx)
+	if err != nil {
+		return d, err
+	}
+	rows, err := tx.Query("SELECT DISTINCT substr(occurred_on,1,7) FROM transactions WHERE ledger_id=? AND deleted_at IS NULL ORDER BY 1 DESC", s.ledgerID)
 	if err != nil {
 		return d, err
 	}
@@ -309,7 +346,7 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 		d.Months = append(d.Months, m)
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(d.Months)))
-	rows, err = s.db.Query("SELECT "+transactionColumns+" FROM transactions WHERE ledger_id=? AND substr(occurred_on,1,7)=? AND deleted_at IS NULL ORDER BY occurred_on DESC,created_at DESC,id", s.ledgerID, month)
+	rows, err = tx.Query("SELECT "+transactionColumns+" FROM transactions WHERE ledger_id=? AND substr(occurred_on,1,7)=? AND deleted_at IS NULL ORDER BY occurred_on DESC,created_at DESC,id", s.ledgerID, month)
 	if err != nil {
 		return d, err
 	}
@@ -323,6 +360,9 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 		t, e := scanRecord(rows)
 		if e != nil {
 			return d, e
+		}
+		if suppressed[t.ID] {
+			continue
 		}
 		minor, _ := strconv.ParseInt(t.AmountMinor, 10, 64)
 		if t.Type == "transfer" {
@@ -351,6 +391,9 @@ func (s *Store) Dashboard(month, query string, page int) (Dashboard, error) {
 		if query == "" || strings.Contains(strings.ToLower(strings.Join([]string{t.Merchant, t.Category, t.Source, t.Account, t.ToAccount, t.Note}, "\n")), query) {
 			if d.FilteredCount >= (page-1)*PageSize && d.FilteredCount < page*PageSize {
 				d.Transactions = append(d.Transactions, t)
+				if pair, ok := primaryPairs[t.ID]; ok {
+					d.ExpensePairs = append(d.ExpensePairs, pair)
+				}
 			}
 			d.FilteredCount++
 		}

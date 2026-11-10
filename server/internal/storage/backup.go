@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/letrahoo/monee/server/internal/dirlease"
 	_ "modernc.org/sqlite"
 )
 
@@ -106,36 +107,82 @@ func Snapshot(source, directory string) error {
 	done = true
 	return nil
 }
+
+// Restore acquires the same directory lease as the service before inspecting
+// the backup or creating a new target. Online Snapshot remains read-only.
 func Restore(directory, target string) error {
-	raw, e := os.ReadFile(filepath.Join(directory, "manifest.json"))
-	if e != nil {
-		return e
+	absolute, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	lease, err := dirlease.Acquire(filepath.Dir(absolute))
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
+	return RestoreWithLease(lease, directory, absolute)
+}
+
+// RestoreWithLease lets a future offline coordinator retain one lease across
+// backup/restore/upgrade steps, without nesting flock acquisitions.
+func RestoreWithLease(lease *dirlease.Lease, directory, target string) error {
+	absolute, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	return lease.Within(filepath.Dir(absolute), func(ownedDirectory string) error {
+		return restore(directory, filepath.Join(ownedDirectory, filepath.Base(absolute)))
+	})
+}
+
+// VerifySnapshot validates the manifest, checksum, integrity and declared schema.
+// It permits future versions for read-only archival, not application startup.
+func VerifySnapshot(directory string) (int, error) {
+	return verifySnapshot(directory)
+}
+
+func verifySnapshot(directory string) (int, error) {
+	raw, err := os.ReadFile(filepath.Join(directory, "manifest.json"))
+	if err != nil {
+		return 0, err
 	}
 	var m Manifest
-	if e = json.Unmarshal(raw, &m); e != nil {
-		return e
+	if err = json.Unmarshal(raw, &m); err != nil {
+		return 0, err
 	}
 	if m.Version != 1 {
-		return fmt.Errorf("unsupported backup version")
+		return 0, fmt.Errorf("unsupported backup version")
 	}
 	source := filepath.Join(directory, "database.sqlite3")
-	hash, e := checksum(source)
-	if e != nil {
-		return e
+	hash, err := checksum(source)
+	if err != nil {
+		return 0, err
 	}
 	if hash != m.SHA256 {
-		return fmt.Errorf("backup checksum mismatch")
+		return 0, fmt.Errorf("backup checksum mismatch")
 	}
-	v, e := Check(source)
+	v, err := Check(source)
+	if err != nil {
+		return 0, err
+	}
+	if v != m.Schema {
+		return 0, fmt.Errorf("backup schema mismatch")
+	}
+	return v, nil
+}
+
+func restore(directory, target string) error {
+	v, e := VerifySnapshot(directory)
 	if e != nil {
 		return e
 	}
-	if v != m.Schema {
-		return fmt.Errorf("backup schema mismatch")
-	}
-	if v > SchemaVersion {
+	if v > MaxSupportedSchemaVersion {
 		return fmt.Errorf("backup requires a newer application")
 	}
+	return copyRestoredDatabase(filepath.Join(directory, "database.sqlite3"), target)
+}
+
+func copyRestoredDatabase(source, target string) error {
 	in, e := os.Open(source)
 	if e != nil {
 		return e

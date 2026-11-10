@@ -94,18 +94,26 @@ func (s *Store) correctionRecord(q queryer, id string) (Transaction, error) {
 func (s *Store) PreviewCorrection(id string, in CorrectionInput) (CorrectionPreview, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.authorize(s.db, true); err != nil {
+	tx, err := s.db.Begin()
+	if err != nil {
 		return CorrectionPreview{}, err
 	}
-	before, err := s.correctionRecord(s.db, id)
+	defer tx.Rollback()
+	if err = s.authorize(tx, true); err != nil {
+		return CorrectionPreview{}, err
+	}
+	before, err := s.correctionRecord(tx, id)
 	if err != nil {
+		return CorrectionPreview{}, err
+	}
+	if err = s.expensePairMemberLocked(tx, id); err != nil {
 		return CorrectionPreview{}, err
 	}
 	out, err := correctionPreview(before, in)
 	if err != nil {
 		return out, err
 	}
-	return out, s.validateRefundCorrection(s.db, id, out.After)
+	return out, s.validateRefundCorrection(tx, id, out.After)
 }
 
 func (s *Store) Correct(id string, in CorrectionInput) (Transaction, error) {
@@ -122,6 +130,9 @@ func (s *Store) Correct(id string, in CorrectionInput) (Transaction, error) {
 	}
 	before, err := s.correctionRecord(tx, id)
 	if err != nil {
+		return out, err
+	}
+	if err = s.expensePairMemberLocked(tx, id); err != nil {
 		return out, err
 	}
 	preview, err := correctionPreview(before, in)

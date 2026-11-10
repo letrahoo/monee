@@ -1,6 +1,28 @@
 # 开发交接
 
-更新：2026-10-14。本文是换电脑、换会话或换开发者的入口。最近核对的主干为 `72f2a37`；开发接续为 `feat/internal-transfers` / 草稿 PR #14，尚未合并。后续提交见 Git 历史，当前未提交工作见下方接续章节。真实凭据、身份配置和账本不在仓库内。
+最新兼容前置：[真实旧v5夹具](plans/retained-v5-compatibility.md)及[验证](verification/retained-v5-compatibility-2026-11-07.md)。固定dab74a5真实源码独立clone构建三个带VCS身份的旧程序/测试，manifest摘要；旧服务实际health5正对照后真实协调器升级empty6、释放lease，再验证旧服务版本拒绝且逻辑schema/rows/version/discovery不变。旧归档6允许、restore6拒绝、新目标回滚5正对照通过。GOENV overlay及浅CI FETCH_HEAD缺失已修复并实测；独立最终审查无P1/P2，完整Go及fresh共享/Web/Mac通过。CI独立必跑兼容job，不将普通Go test当包含build-tag例。下一步直接分离default5/max6并启用全部ledger严格runtime6校验，扩展同一真实old fixture的active/retracted6；然后显式CLI和正常OAuth双端。生产仍5/Open6拒绝、无真实GUI验收/merge/deploy。
+
+最新来源增量：[两侧单行凭证](plans/expense-pair-source-evidence.md)及[验证](verification/expense-pair-source-evidence-2026-11-07.md)。两侧来源可直接展开该行保存字段和导入时规范快照；同stamp先验证关系/source归属，再按import/line/transaction/disposition唯一绑定。缺失原文不伪造，历史快照不替换当前交易；不下载原文件，仍复用整批import-detail响应。完整Go及fresh共享/Web/Mac和独立审查通过，未正常OAuth双端实际验收。下一步直接交付正常schema6能力门禁、显式离线升级与真实旧v5实现兼容fixture；schema5仍未启用，Open6仍拒绝。
+
+最新共享操作增量：[关联面板](plans/expense-pair-shared-ui.md)及[验证](verification/expense-pair-shared-ui-2026-11-07.md)。已接真实API的主副选择→预览→确认→分角色来源列表/历史→二次确认撤回，保留未知请求原key；当前只显示两侧批次文件名/行号，副来源原始凭证明细跳转仍缺。完整Go及fresh共享/Web/Mac检查通过，未正常OAuth双端实际验收。schema5未启用、Open6仍拒绝。下一步先补两侧原文详情导航，再交付正常schema6能力门禁/显式离线升级/实际旧v5兼容fixture，不可仅提升常量。
+
+最新客户端增量：[关联导航与传输层](plans/expense-pair-client-transport.md)及[验证](verification/expense-pair-client-transport-2026-11-07.md)。Dashboard顶层expensePairs只给当前页active primary，列表显示计一次提示；共享DTO/API保留scope-bound未知写入key，MockEngine覆盖重连/换账号/迟到响应。仍无完整操作面板与双来源导航，schema6正常运行未开放，不能当双端验收完成。下一步直接做确认/撤回UI竖切及版本能力交付。
+
+最新API增量：新增[消费关联授权API](plans/expense-pair-authorized-api.md)及[验证](verification/expense-pair-authorized-api-2026-11-07.md)：预览、确认、按交易查历史、撤回；同事务授权并要求能力6。正常schema5仍503未启用，Open6仍拒绝，无共享UI/关联badge，未双端实际验收。隔离HTTP已跑通native导入→预览→确认/重放→只计一次→历史→撤回恢复两行。下一步推进正常能力门禁与共享UI竖切，不再添加不存在的posting读取脚手架。
+
+最新私有增量：实现[离线升级协调器](plans/expense-pair-offline-upgrade.md)及[隔离验证](verification/expense-pair-offline-upgrade-2026-11-07.md)。仅未导出方法、无正常调用入口；持租约精确v5空表校验→备份内容/manifest验证→同步落盘→事务内重验/切换6。正常生产仍schema5并拒绝6/非空关联表，未实际升级或开放功能。未来不能直接把生产常量改6就称交付。
+
+更新：2026-11-07。新增[共享目录租约](plans/shared-directory-lease.md)及[验证](verification/shared-directory-lease-2026-11-07.md)：正常启动持显式 Lease，恢复复用同一 service.lock 协议，旧库迁移复用已有租约以避免自冲突。仅为独占升级前置条件，尚未升级 schema 或解除非空关联门禁。退款摘要也已加同事务保护，见[退款摘要验证](verification/expense-pair-refund-summary-2026-11-07.md)。
+
+R16 在私有生命周期之上补[有效统计与旧写入保护](plans/expense-pair-effective-guards.md)（[验证](verification/expense-pair-effective-guards-2026-10-19.md)）：Dashboard 对 active 决策只计 primary、损坏时失败关闭；备注/更正/退款/重复导入链接/导入撤销恢复对 active 成员拒绝。Open 门禁、无 HTTP/UI、未双端验收均不变。
+
+R15 历史：schema5增加[未开放入口的确认/撤回事务核心](plans/expense-pair-private-lifecycle.md)及[实测边界](verification/expense-pair-private-lifecycle-2026-10-18.md)。只有未导出metadata方法及严格来源/持久快照检查；没有HTTP/UI、有效财务投影或旧writer guard激活，原账务与交易版本不改、毛支出仍两份。Open非空关系门禁保留，必须完整effective读取/两腿posting/旧写与undo保护及独占升级一并到位才开放。M11仍进行中，正常双端未验收，不自动merge/deploy。
+
+R14历史基础：在已选schema4链上新增005/schema5持久化基础，见[三表与启动门禁](plans/expense-pair-schema5-foundation.md)、[实际验证及未覆盖](verification/expense-pair-schema5-foundation-2026-10-18.md)。空5库保留原账务；三表任一已有数据或结构未知则Open拒绝，尚无确认/撤回Store/API/UI，不把启动保护说成运行时外部writer防御。未来需完整有效读取/旧写保护/生命周期与独占升级同时解除门禁；M11和正常双端未验收，不自动合并部署。
+
+R13历史基线：用户已选显式基于PR14/schema4开发M11后续迁移；当前分支从固定2135fe0建立，并选取PR17/31066f1来源冻结与PR20/119e8fa纯facts/pair核心，依赖不是main已有功能。见[开发依赖链与本片边界](plans/same-account-decision-stack.md)。主干仍72f2a37/schema3，PR base为feat/internal-transfers而非main；不自动合并、部署或切共享入口。
+
+本片仅隔离开发基线：004保持不变、schema4、无新增关联DDL/确认撤回写入口或M11有效账务。用户D4同实际fund账户范围与D1开发方式已定，其余证据/版本/撤回政策不据此自动通过；正常双端关联业务尚未验收。下方旧端口及状态为历史记录，真实凭据/身份/账本不在仓库内。
 
 ## 最新接续：M-09 自动回归补强（2026-10-14）
 

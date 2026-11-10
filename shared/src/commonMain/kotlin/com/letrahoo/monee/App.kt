@@ -77,6 +77,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
     // the panel must not silently generate a second idempotency key.
     var refundSubmission by remember { mutableStateOf(api.pendingRefund(ledger.id)) }
     var transferSubmission by remember { mutableStateOf(api.pendingTransfer(ledger.id)) }
+    var pairTransactionID by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(month, query, page, refresh) {
         loading = true
@@ -136,6 +137,7 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                     Button(onClick={panel=if(panel=="import")""else"import";actionError=null},enabled=ledger.role!="viewer"&&dashboard!=null&&!working&&connectionError==null) { Text("导入账单") }
                     OutlinedButton(onClick={panel=if(panel=="manual")""else"manual";if(input.date.isEmpty())input=input.copy(date=dashboard?.today.orEmpty());actionError=null},enabled=ledger.role!="viewer"&&dashboard!=null&&!working&&connectionError==null) { Text("记一笔") }
                     OutlinedButton(onClick={panel=if(panel=="transfer")""else"transfer";actionError=null},enabled=ledger.role!="viewer"&&dashboard!=null&&!working&&connectionError==null){Text("本人转账")}
+                    OutlinedButton(onClick={pairTransactionID=null;panel="expense-pair";actionError=null},enabled=ledger.role!="viewer"&&dashboard!=null&&!working&&connectionError==null){Text("关联同笔消费")}
                     TextButton(onClick={runAction { importHistory=api.importHistory(ledger.id,1);panel="history" }},enabled=!working){Text("导入记录")}
                     TextButton(onClick={runAction { reviewQueue=api.reviewQueue(ledger.id,1,reviewFormat);panel="review" }},enabled=!working){Text("待核实")}
                     TextButton(onClick={if(panel=="review")runAction {reviewQueue=api.reviewQueue(ledger.id,reviewQueue?.page ?: 1,reviewFormat)}else refresh++},enabled=!working) { Text("刷新") }
@@ -143,6 +145,12 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                 if(ledger.role=="viewer")Text("只读账本",color=Muted)
                 notice?.let { Text(it,color=Pine) }
                 actionError?.let { Text(it,color=MaterialTheme.colors.error) }
+                if(api.pendingExpensePair(ledger.id)!=null&&panel!="expense-pair")TextButton(onClick={pairTransactionID=null;panel="expense-pair"},enabled=!working){Text("继续核实上次消费关联操作")}
+                if(panel=="expense-pair")key(user.id,ledger.id,pairTransactionID) {
+                    ExpensePairPanel(api,user.id,ledger.id,ledger.role=="viewer",dashboard,pairTransactionID,
+                        onChanged={refresh++;sourceID="";revisionID=""},onAccessLost=onAccessLost,
+                        onClose={panel="";pairTransactionID=null})
+                }
                 if(transferSubmission!=null&&panel!="transfer")TextButton(onClick={panel="transfer"},enabled=!working){Text("继续确认上次转账")}
                 if(panel=="transfer")TransferPanel(dashboard?.today.orEmpty(),ledger.role=="viewer",working,transferSubmission,
                     onSubmit={change->runAction {
@@ -290,12 +298,14 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                             Column {
                                 if(data.transactions.isEmpty()) Text(if(query.isBlank())if(ledger.role=="viewer")"本月暂无账单。"else"本月暂无账单，导入或记一笔。"else"没有找到相关账单",Modifier.padding(24.dp),color=Muted)
                                 data.transactions.forEachIndexed { index,item ->
+                                    val activePair=data.expensePairs.firstOrNull { it.primaryId==item.id }
                                     TextButton(onClick={selectedID=if(selectedID==item.id)null else item.id},modifier=Modifier.fillMaxWidth(),contentPadding=PaddingValues(18.dp)) {
                                         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                                             if(!compact) Text(item.date,Modifier.width(100.dp),fontSize=13.sp,color=Muted)
                                             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(5.dp)) {
                                                 Text(if(item.type=="transfer")transactionAccountLabel(item)else item.merchant,fontWeight=FontWeight.Medium,color=Ink,maxLines=1,overflow=TextOverflow.Ellipsis)
                                                 Text("${item.category} · ${item.source}${if(compact)" · ${item.date}"else""}",fontSize=12.sp,color=Muted)
+                                                if(activePair!=null) Text("已关联 · 支出仅计一次",fontSize=12.sp,color=Pine)
                                             }
                                             Text(transactionAmountLabel(item),color=if(item.type=="income")Pine else Ink,fontWeight=FontWeight.SemiBold)
                                         }
@@ -308,7 +318,11 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                                         if(item.externalId.isNotEmpty()&&!item.externalId.contains("-native-v1:"))Text("来源流水号：${item.externalId}")
                                         if(item.note.isNotEmpty())Text("备注：${item.note}")
                                         if(item.type=="refund")Text("消费退款（不计入收入）",color=Pine)
-                                        if(item.type=="expense"||item.type=="refund")TextButton(onClick={runAction {
+                                        if(activePair!=null) {
+                                            Text("这笔消费已关联并只计一次。修改金额、分类、备注或登记退款前，请先撤回关联。",color=Muted)
+                                        }
+                                        if(item.type=="expense")TextButton(onClick={pairTransactionID=item.id;panel="expense-pair"},enabled=!working){Text(if(activePair!=null)"关联详情 / 两份来源"else"关联记录")}
+                                        if(activePair==null&&(item.type=="expense"||item.type=="refund"))TextButton(onClick={runAction {
                                             refundSummary=api.refunds(ledger.id,item.id);panel="refund"
                                         }},enabled=!working&&(refundSubmission==null||refundSubmission?.originalId==(item.refundOf.ifBlank { item.id }))){Text(if(item.type=="refund")"查看原消费与退款"else"退款记录 / 登记退款")}
                                         TextButton(onClick={runAction {sourceLinks=api.transactionSources(ledger.id,item.id);sourceID=item.id}},enabled=!working){Text("来源批次")}
@@ -320,10 +334,10 @@ internal fun LedgerScreen(api:LedgerApi,user:AuthUser,ledger:LedgerInfo,onWorksp
                                                 sourceAccount=detail.preview.sourceAccount;nativeContent="";csv="";confirmedSimilar=false;panel="import"
                                             }},enabled=!working){Text("${link.filename} · 第 ${link.line} 行")} }
                                         }
-                                        if(ledger.role!="viewer") AnnotationEditor(item,working,onSave={category,note->runAction {
+                                        if(activePair==null&&ledger.role!="viewer") AnnotationEditor(item,working,onSave={category,note->runAction {
                                             api.annotate(ledger.id,item.id,AnnotationInput(item.version,category,note));notice=if(item.type=="transfer")"备注已保存"else"分类与备注已保存";refresh++;revisionID=""
                                         }})
-                                        if(ledger.role!="viewer"&&item.type in listOf("income","expense")) CorrectionEditor(item,working,
+                                        if(activePair==null&&ledger.role!="viewer"&&item.type in listOf("income","expense")) CorrectionEditor(item,working,
                                             onPreview={change,accept->runAction { accept(api.previewCorrection(ledger.id,item.id,change)) }},
                                             onConfirm={change->runAction { api.correct(ledger.id,item.id,change);notice="金额与收支性质已更正";refresh++;revisionID="" }})
                                         TextButton(onClick={runAction { revisions=api.annotationHistory(ledger.id,item.id);corrections=api.correctionHistory(ledger.id,item.id);revisionID=item.id }},enabled=!working){Text("修改记录")}

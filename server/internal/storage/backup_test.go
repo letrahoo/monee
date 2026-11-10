@@ -2,9 +2,12 @@ package storage
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/letrahoo/monee/server/internal/dirlease"
 )
 
 func TestSnapshotRestoreWALAndTampering(t *testing.T) {
@@ -20,6 +23,22 @@ func TestSnapshotRestoreWALAndTampering(t *testing.T) {
 	}
 	bundle := filepath.Join(root, "backup")
 	if e = Snapshot(source, bundle); e != nil {
+		t.Fatal(e)
+	}
+	lease, e := dirlease.Acquire(root)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = RestoreWithLease(lease, bundle, filepath.Join(root, "coordinated.db")); e != nil {
+		lease.Close()
+		t.Fatal(e)
+	}
+	if other, err := dirlease.Acquire(root); err == nil {
+		other.Close()
+		lease.Close()
+		t.Fatal("restore released caller-owned lease")
+	}
+	if e = lease.Close(); e != nil {
 		t.Fatal(e)
 	}
 	dest := filepath.Join(root, "restored.db")
@@ -49,6 +68,45 @@ func TestSnapshotRestoreWALAndTampering(t *testing.T) {
 	}
 }
 
+func TestRestoreSupportsSchema6(t *testing.T) {
+	if SchemaVersion != 5 || MaxSupportedSchemaVersion != 6 {
+		t.Fatal("default and supported schema boundaries changed")
+	}
+	root := t.TempDir()
+	source := filepath.Join(root, "source.db")
+	db, err := sql.Open("sqlite", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec("CREATE TABLE items(id TEXT); INSERT INTO items VALUES('retained'); PRAGMA user_version=6"); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	bundle := filepath.Join(root, "backup")
+	if err = Snapshot(source, bundle); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "restored.db")
+	if err = Restore(bundle, target); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := Check(target); err != nil || v != 6 {
+		t.Fatal(v, err)
+	}
+	restored, err := openRead(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	var value string
+	if err = restored.QueryRow("SELECT id FROM items").Scan(&value); err != nil || value != "retained" {
+		t.Fatal(value, err)
+	}
+}
+
 func TestRestoreRejectsFutureSchemaWithoutCreatingTarget(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "future.db")
@@ -56,13 +114,20 @@ func TestRestoreRejectsFutureSchemaWithoutCreatingTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec("CREATE TABLE items(id TEXT); PRAGMA user_version=5"); err != nil {
+	if _, err = db.Exec(fmt.Sprintf("CREATE TABLE items(id TEXT); PRAGMA user_version=%d", MaxSupportedSchemaVersion+1)); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
 	bundle := filepath.Join(root, "backup")
 	if err := Snapshot(source, bundle); err != nil {
 		t.Fatal(err)
+	}
+	// Future archives remain inspectable; only application restore is bounded.
+	if v, err := VerifySnapshot(bundle); err != nil || v != MaxSupportedSchemaVersion+1 {
+		t.Fatal(v, err)
+	}
+	if v, err := Check(source); err != nil || v != MaxSupportedSchemaVersion+1 {
+		t.Fatal(v, err)
 	}
 	target := filepath.Join(root, "restored.db")
 	if err := Restore(bundle, target); err == nil {

@@ -27,6 +27,9 @@ data class Dashboard(
     val page: Int, val pageSize: Int, val categories: List<CategoryTotal>,
     val transactions: List<LedgerTransaction>,
     val grossExpenseMinor:String=expenseMinor, val refundMinor:String="0",
+    // Current-page active-primary receipts; never add association metadata to
+    // LedgerTransaction, which also appears in immutable source snapshots.
+    val expensePairs:List<ExpensePairReceipt> = emptyList(),
 )
 
 @Serializable data class RefundInput(val version:Long,val date:String,val amount:String,val currency:String="CNY",val account:String="",val note:String="")
@@ -97,7 +100,8 @@ data class LoginProof(val verifier:String,val challenge:String)
 
 @Serializable data class ImportSummary(val id:String,val filename:String,val createdAt:String,val committedAt:String?=null,val result:CommitResult?=null,val errors:Int=0,val pending:Int=0,val undone:Boolean=false)
 @Serializable data class ImportHistory(val imports:List<ImportSummary>,val page:Int,val pageSize:Int,val totalCount:Int)
-@Serializable data class ImportDetail(val parserVersion:Int,val preview:ImportPreview)
+@Serializable data class ImportedSourceEvidence(val id:String,val line:Int,val transactionId:String,val disposition:String,val record:LedgerTransaction)
+@Serializable data class ImportDetail(val parserVersion:Int,val preview:ImportPreview,val evidence:List<ImportedSourceEvidence> = emptyList())
 
 @Serializable data class AnnotationInput(val version:Long,val category:String,val note:String)
 @Serializable data class AnnotationRevision(val before:LedgerTransaction,val after:LedgerTransaction,val createdAt:String)
